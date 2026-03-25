@@ -1,0 +1,11 @@
+streamlit
+python-pptx
+pandas
+requests
+beautifulsoup4
+yfinance
+ollama
+langchain
+python-dotenv
+playwright
+lxml
