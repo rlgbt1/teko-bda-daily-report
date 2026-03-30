@@ -4,8 +4,8 @@ pandas
 requests
 beautifulsoup4
 yfinance
-ollama
-langchain
+google-generativeai
 python-dotenv
 playwright
 lxml
+reportlab
