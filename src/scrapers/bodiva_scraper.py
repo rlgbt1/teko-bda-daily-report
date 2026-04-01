@@ -40,7 +40,7 @@ class BODIVAScraper(BaseScraper):
         try:
             import playwright  # noqa: F401
             return True
-        except ImportError:
+        except ImportError: 
             logger.warning(
                 "Playwright not installed — BODIVA scraper will use requests fallback. "
                 "Run: pip install playwright && python -m playwright install chromium"

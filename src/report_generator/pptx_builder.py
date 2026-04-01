@@ -26,12 +26,35 @@ from __future__ import annotations
 
 import os
 from datetime import date
-from typing import Any
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
+
+# ── Brand asset paths (extracted from original PPTX) ──────────────────────────
+_ASSETS_DIR = Path(__file__).parent.parent.parent / "assets" / "images"
+IMG_FOOTER_BANNER = str(_ASSETS_DIR / "footer_banner.png")     # "UMA VISÃO DE FUTURO" strip — every slide
+IMG_COVER_HEADER  = str(_ASSETS_DIR / "cover_header.png")      # orange hero — cover
+IMG_INNER_HEADER  = str(_ASSETS_DIR / "inner_header.png")      # orange hero — inner slides
+IMG_AGENDA_BG     = str(_ASSETS_DIR / "agenda_bg.jpg")         # full background — agenda
+
+# Per-slide icons (all extracted from original PPTX at exact positions)
+IMG_ICON_S3_LMN       = str(_ASSETS_DIR / "icon_s3_liquidez_mn.png")       # s3 coin+arrow  → Liquidez MN KPI
+IMG_ICON_S3_LME       = str(_ASSETS_DIR / "icon_s3_liquidez_me.png")       # s3 people      → Liquidez ME KPI
+IMG_ICON_S3_RENTA     = str(_ASSETS_DIR / "icon_s3_rentabilidade.png")     # s3 bar-chart   → Rentabilidade cards
+IMG_ICON_S3_VBAR      = str(_ASSETS_DIR / "icon_s3_vbar.png")              # s3 vertical bar divider
+IMG_ICON_S3_CAMBIAL   = str(_ASSETS_DIR / "icon_s3_posicao_cambial.png")   # s3 people      → Posição Cambial
+IMG_ICON_S3_REEMB     = str(_ASSETS_DIR / "icon_s3_reembolsos.png")        # s3 coins stack → Reembolsos
+IMG_ICON_S3_REPORT    = str(_ASSETS_DIR / "icon_report_color.png")         # s3 coloured report icon bottom-right
+IMG_ICON_CALCULATOR   = str(_ASSETS_DIR / "icon_calculator.png")           # s4/s6 calculator icon
+IMG_ICON_GEAR         = str(_ASSETS_DIR / "icon_gear.png")                 # s4 hand+gear icon
+IMG_ICON_KZ_CIRCLE    = str(_ASSETS_DIR / "icon_kz_circle.png")            # s5 "Kz" circle
+IMG_ICON_REPORT_MONEY = str(_ASSETS_DIR / "icon_report_money.png")         # s7/s10/s11 report+money icon
+IMG_ICON_FX_EXCHANGE  = str(_ASSETS_DIR / "icon_fx_exchange.png")          # s7 EUR/USD exchange icon
+IMG_ICON_GLOBE        = str(_ASSETS_DIR / "icon_globe.png")                # s11 world globe
+IMG_ICON_REPORT_BW    = str(_ASSETS_DIR / "icon_report_bw.png")            # s2 agenda BW report icon
 
 # ── BDA colour palette (derived from the PDF reference) ───────────────────────
 #   Primary orange  : section headers, KPI values, titles
@@ -61,10 +84,15 @@ FONT   = "Calibri"
 # Low-level shape helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _place_img(slide, path, left, top, width=None, height=None):
+    """Place an image if the file exists; silently skip if missing."""
+    if os.path.isfile(path):
+        slide.shapes.add_picture(path, left, top, width, height)
+
+
 def _add_rect(slide, left, top, width, height,
               fill_color=None, line_color=None, line_width_pt: float = 0.5):
     from pptx.util import Pt as _Pt
-    from pptx.enum.shapes import MSO_SHAPE_TYPE  # noqa (unused, shapes constant below)
     shape = slide.shapes.add_shape(1, left, top, width, height)
     if fill_color:
         shape.fill.solid()
@@ -105,24 +133,33 @@ def _add_text_box(slide, text: str, left, top, width, height,
 
 def _slide_title(slide, title: str, date_str: str = ""):
     """
-    Italic bold orange title — matching the PDF style where the section name
-    appears as large italic orange text on a white background.
-    A thin orange rule beneath separates it from the content.
+    Inner slide header: real brand image on top, bold title below it, then a rule.
+    Falls back to a solid accent strip if the image file is missing.
     """
-    # Thin orange top accent strip
-    _add_rect(slide, Inches(0), Inches(0), SLIDE_W, Inches(0.06), ORANGE_PRIMARY)
-    # Italic orange title
+    # Orange header image (Angola map + chart)
+    if os.path.isfile(IMG_INNER_HEADER):
+        slide.shapes.add_picture(IMG_INNER_HEADER,
+                                 Inches(0), Inches(0), SLIDE_W, Inches(0.52))
+    else:
+        _add_rect(slide, Inches(0), Inches(0), SLIDE_W, Inches(0.06), ORANGE_PRIMARY)
+
+    # Thin left accent marker (small orange block, matches original)
+    _add_rect(slide, Inches(0), Inches(0.4), Inches(0.28), Inches(0.4), ORANGE_PRIMARY)
+
+    # Bold section title
     _add_text_box(slide, title,
-                  Inches(0.25), Inches(0.08), Inches(9.8), Inches(0.6),
-                  font_size=22, bold=True, italic=True,
-                  color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
+                  Inches(0.4), Inches(0.22), Inches(10.8), Inches(0.48),
+                  font_size=20, bold=True,
+                  color=BLACK, align=PP_ALIGN.LEFT)
+
     # Date — right-aligned, smaller, grey
     if date_str:
         _add_text_box(slide, date_str,
-                      Inches(10.1), Inches(0.08), Inches(3.0), Inches(0.6),
-                      font_size=11, color=DARK_GREY, align=PP_ALIGN.RIGHT)
+                      Inches(10.8), Inches(0.22), Inches(2.3), Inches(0.4),
+                      font_size=10, color=DARK_GREY, align=PP_ALIGN.RIGHT)
+
     # Thin orange horizontal rule under title
-    _add_rect(slide, Inches(0.25), Inches(0.68), SLIDE_W - Inches(0.5), Inches(0.03),
+    _add_rect(slide, Inches(0.4), Inches(0.62), SLIDE_W - Inches(0.55), Inches(0.02),
               ORANGE_PRIMARY)
 
 
@@ -136,23 +173,36 @@ def _section_bar(slide, label: str, left, top, width=None, height=Inches(0.28)):
 
 def _footer(slide):
     """
-    Orange footer strip — mirrors the 'UMA VISÃO DE FUTURO' band in the PDF.
-    We can't embed the photo, so we use a solid orange strip.
+    Footer strip — uses the real 'UMA VISÃO DE FUTURO' brand image extracted from
+    the original PPTX.  Falls back to a solid orange strip if the image is missing.
     """
-    footer_h = Inches(0.38)
+    footer_h   = Inches(0.72)
     footer_top = SLIDE_H - footer_h
-    _add_rect(slide, Inches(0), footer_top, SLIDE_W, footer_h, ORANGE_PRIMARY)
-    _add_text_box(
-        slide,
-        "Edifício BDA, Condomínio Dolce Vita, Via S8, Talatona  |  Luanda – Angola",
-        Inches(0.3), footer_top + Pt(2), SLIDE_W - Inches(3.5), footer_h - Pt(4),
-        font_size=7, color=WHITE, align=PP_ALIGN.LEFT,
-    )
-    _add_text_box(
-        slide, "UMA VISÃO DE FUTURO",
-        SLIDE_W - Inches(3.2), footer_top + Pt(2), Inches(3.0), footer_h - Pt(4),
-        font_size=7, bold=True, color=WHITE, align=PP_ALIGN.RIGHT,
-    )
+    if os.path.isfile(IMG_FOOTER_BANNER):
+        slide.shapes.add_picture(IMG_FOOTER_BANNER,
+                                 Inches(0), footer_top, SLIDE_W, footer_h)
+    else:
+        _add_rect(slide, Inches(0), footer_top, SLIDE_W, footer_h, ORANGE_PRIMARY)
+        _add_text_box(
+            slide,
+            "Edifício BDA, Condomínio Dolce Vita, Via S8, Talatona  |  Luanda – Angola",
+            Inches(0.3), footer_top + Pt(2), SLIDE_W - Inches(3.5), footer_h - Pt(4),
+            font_size=7, color=WHITE, align=PP_ALIGN.LEFT,
+        )
+        _add_text_box(
+            slide, "UMA VISÃO DE FUTURO",
+            SLIDE_W - Inches(3.2), footer_top + Pt(2), Inches(3.0), footer_h - Pt(4),
+            font_size=7, bold=True, color=WHITE, align=PP_ALIGN.RIGHT,
+        )
+
+
+def _inner_header(slide):
+    """Orange header banner for inner slides (extracted from original PPTX)."""
+    header_h = Inches(0.52)
+    if os.path.isfile(IMG_INNER_HEADER):
+        slide.shapes.add_picture(IMG_INNER_HEADER, Inches(0), Inches(0), SLIDE_W, header_h)
+    else:
+        _add_rect(slide, Inches(0), Inches(0), SLIDE_W, header_h, ORANGE_PRIMARY)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -211,6 +261,30 @@ def _kpi_bubble(slide, label: str, value: str, left, top,
     _add_text_box(slide, value,
                   left + Pt(4), top + Inches(0.32), w - Pt(8), Inches(0.62),
                   font_size=18, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
+
+
+def _summary_oval(slide, label: str, value: str, left, top, width, height,
+                  fill=None, text_color=WHITE):
+    """
+    Brown-filled oval KPI — matches original PPTX summary ovals on slides 4, 6, 7, 8, 9.
+    Exact sizes come from the coordinate dump of the source PPTX.
+    """
+    if fill is None:
+        fill = BROWN_KPI
+    oval = slide.shapes.add_shape(9, left, top, width, height)
+    oval.fill.solid()
+    oval.fill.fore_color.rgb = fill
+    oval.line.fill.background()
+    lbl_h = height * 0.42
+    val_h = height - lbl_h
+    _add_text_box(slide, label,
+                  left + Inches(0.04), top + Inches(0.04),
+                  width - Inches(0.08), lbl_h - Inches(0.04),
+                  font_size=7, bold=True, color=text_color, align=PP_ALIGN.CENTER)
+    _add_text_box(slide, value,
+                  left + Inches(0.04), top + lbl_h,
+                  width - Inches(0.08), val_h,
+                  font_size=9, bold=True, color=text_color, align=PP_ALIGN.CENTER)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +351,114 @@ class BDAReportGenerator:
         self.prs.slide_height = SLIDE_H
         self._blank = self.prs.slide_layouts[6]  # blank layout
 
+    # ── Pie chart helper (Slide 5) ────────────────────────────────────────────
+
+    def _add_pie_charts_mn(self, slide):
+        """
+        Generates and embeds the DESEMBOLSOS and REEMBOLSOS 3D-style pie charts
+        that appear in Slide 5 (Liquidez MN 2/2), matching the original design.
+
+        Data keys used:
+          desembolsos_pie  : float  — total desembolsos value (single slice when 0)
+          reembolsos_pie   : list   — [{"label": str, "valor": float}, …]
+        """
+        import io
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as mpatches
+        except ImportError:
+            return  # matplotlib not installed — skip silently
+
+        PIE_COLORS = ["#E8751A", "#C05000", "#A03800", "#FF9A3C", "#7A3000",
+                      "#FFC57A", "#5C2D00", "#FFAA55"]
+
+        # ── DESEMBOLSOS chart (left, 6.21",3.34", 2.69x2.53in) ──────────────
+        desembolso_val = float(str(self.data.get("desembolsos_total", 0)
+                                   ).replace(",", ".").replace(" ", "") or 0)
+        fig_d, ax_d = plt.subplots(figsize=(2.69, 2.53), subplot_kw=dict(aspect="equal"))
+        fig_d.patch.set_alpha(0)
+        ax_d.set_facecolor("none")
+        if desembolso_val <= 0:
+            # Single full orange circle = zero desembolsos (matches original)
+            wedge = mpatches.Wedge((0, 0), 1, 0, 360,
+                                   facecolor="#E8751A", edgecolor="#C05000", linewidth=1.5)
+            ax_d.add_patch(wedge)
+            # 3D shadow ellipse
+            shadow = mpatches.Ellipse((0, -0.12), 2.0, 0.35,
+                                      facecolor="#C05000", alpha=0.6, zorder=0)
+            ax_d.add_patch(shadow)
+            ax_d.set_xlim(-1.3, 1.3); ax_d.set_ylim(-0.6, 1.3)
+        else:
+            ax_d.pie([desembolso_val], colors=["#E8751A"],
+                     wedgeprops={"edgecolor": "#C05000", "linewidth": 1.5})
+        ax_d.set_title("DESEMBOLSOS", fontsize=9, fontweight="bold",
+                       color="black", pad=4,
+                       bbox=dict(boxstyle="round,pad=0.2", fc="#C05000",
+                                 ec="#C05000"))
+        ax_d.axis("off")
+        buf_d = io.BytesIO()
+        fig_d.savefig(buf_d, format="png", bbox_inches="tight",
+                      transparent=True, dpi=150)
+        plt.close(fig_d)
+        buf_d.seek(0)
+        slide.shapes.add_picture(buf_d, Inches(6.21), Inches(3.34),
+                                  Inches(2.69), Inches(2.53))
+
+        # ── Kz circle icon between charts ────────────────────────────────────
+        _place_img(slide, IMG_ICON_KZ_CIRCLE, Inches(6.39), Inches(5.98),
+                   Inches(0.56), Inches(0.41))
+
+        # ── REEMBOLSOS chart (right, 8.52",3.45", 4.09x2.4in) ────────────────
+        reemb_items = self.data.get("reembolsos_pie", [])
+        if not reemb_items:
+            # Empty — just render matching blank orange circle
+            fig_r, ax_r = plt.subplots(figsize=(4.09, 2.4),
+                                        subplot_kw=dict(aspect="equal"))
+            fig_r.patch.set_alpha(0); ax_r.set_facecolor("none")
+            ax_r.pie([1], colors=["#E8751A"],
+                     wedgeprops={"edgecolor": "#C05000", "linewidth": 1.5})
+            ax_r.set_title("REEMBOLSOS", fontsize=9, fontweight="bold",
+                           color="black", pad=4,
+                           bbox=dict(boxstyle="round,pad=0.2", fc="#C05000",
+                                     ec="#C05000"))
+            ax_r.axis("off")
+            buf_r = io.BytesIO()
+            fig_r.savefig(buf_r, format="png", bbox_inches="tight",
+                          transparent=True, dpi=150)
+            plt.close(fig_r)
+        else:
+            labels = [r["label"] for r in reemb_items]
+            values = [float(str(r["valor"]).replace(",", ".")) for r in reemb_items]
+            colors = PIE_COLORS[:len(values)]
+            fig_r, ax_r = plt.subplots(figsize=(4.09, 2.4),
+                                        subplot_kw=dict(aspect="equal"))
+            fig_r.patch.set_alpha(0); ax_r.set_facecolor("none")
+            wedges, _texts, autotexts = ax_r.pie(
+                values, labels=None, colors=colors, autopct="%1.0f%%",
+                pctdistance=0.75, startangle=90,
+                wedgeprops={"edgecolor": "white", "linewidth": 1},
+            )
+            for at in autotexts:
+                at.set_fontsize(8); at.set_color("white"); at.set_fontweight("bold")
+            # Legend
+            ax_r.legend(wedges, labels, loc="center right",
+                        bbox_to_anchor=(1.55, 0.5), fontsize=7,
+                        frameon=False)
+            ax_r.set_title("REEMBOLSOS", fontsize=9, fontweight="bold",
+                           color="black", pad=4,
+                           bbox=dict(boxstyle="round,pad=0.2", fc="#C05000",
+                                     ec="#C05000"))
+            ax_r.axis("off")
+            buf_r = io.BytesIO()
+            fig_r.savefig(buf_r, format="png", bbox_inches="tight",
+                          transparent=True, dpi=150)
+            plt.close(fig_r)
+        buf_r.seek(0)
+        slide.shapes.add_picture(buf_r, Inches(8.52), Inches(3.45),
+                                  Inches(4.09), Inches(2.4))
+
     # ── Public ────────────────────────────────────────────────────────────────
 
     def build(self, output_path: str = "output/bda_report.pptx") -> str:
@@ -302,48 +484,43 @@ class BDAReportGenerator:
         slide    = self.prs.slides.add_slide(self._blank)
         date_str = self.data.get("report_date", date.today().strftime("%d.%m.%Y"))
 
-        # Upper two-thirds — orange background (stands in for the financial imagery)
-        _add_rect(slide, Inches(0), Inches(0), SLIDE_W, Inches(4.5), ORANGE_PRIMARY)
+        # Upper orange header image (Angola map + financial imagery)
+        if os.path.isfile(IMG_COVER_HEADER):
+            slide.shapes.add_picture(IMG_COVER_HEADER,
+                                     Inches(0), Inches(0), SLIDE_W, Inches(3.75))
+        else:
+            _add_rect(slide, Inches(0), Inches(0), SLIDE_W, Inches(3.75), ORANGE_PRIMARY)
 
-        # Angola map outline hint — thin white lines (simple geometric approximation)
-        _add_rect(slide, Inches(0.3), Inches(0.2), Inches(0.5), Inches(2.8), None, WHITE, 1.5)
+        # White panel for text below header
+        _add_rect(slide, Inches(0), Inches(3.75), SLIDE_W, Inches(3.03), WHITE)
 
-        # White panel for text
-        _add_rect(slide, Inches(0), Inches(4.5), SLIDE_W, Inches(2.62), WHITE)
+        # Thin orange vertical separator
+        _add_rect(slide, Inches(0.28), Inches(3.75), Inches(0.08), Inches(2.2), ORANGE_PRIMARY)
 
-        # Thin orange separator line
-        _add_rect(slide, Inches(0), Inches(4.5), Inches(0.12), Inches(2.2), ORANGE_PRIMARY)
-
-        # Main title (italic)
+        # Main title (italic, red-orange matching original #D44B36)
         _add_text_box(slide, "Resumo Diário Dos Mercados",
-                      Inches(0.35), Inches(4.55), Inches(11), Inches(0.85),
-                      font_size=34, bold=True, italic=True,
-                      color=BLACK, align=PP_ALIGN.LEFT)
+                      Inches(0.35), Inches(4.51), Inches(11), Inches(0.75),
+                      font_size=34, bold=True, italic=False,
+                      color=RGBColor(0xD4, 0x4B, 0x36), align=PP_ALIGN.LEFT)
 
         # Sub-title
         _add_text_box(slide, "DIRECÇÃO FINANCEIRA",
-                      Inches(0.35), Inches(5.42), Inches(8), Inches(0.4),
+                      Inches(0.56), Inches(5.12), Inches(8), Inches(0.38),
                       font_size=14, bold=True, color=BLACK, align=PP_ALIGN.LEFT)
 
-        # Date — orange
+        # Date — orange-red
         _add_text_box(slide, date_str,
-                      Inches(0.35), Inches(5.82), Inches(8), Inches(0.38),
-                      font_size=14, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
+                      Inches(0.56), Inches(5.52), Inches(8), Inches(0.36),
+                      font_size=14, bold=True,
+                      color=RGBColor(0xD4, 0x4B, 0x36), align=PP_ALIGN.LEFT)
 
-        # Address — small grey
+        # Address box (small text bottom-left)
         _add_text_box(
             slide,
-            "Edifício BDA, Condomínio Dolce Vita, Via S8, Talatona  |  Luanda – Angola",
-            Inches(0.35), Inches(6.95), Inches(10), Inches(0.28),
-            font_size=7, color=DARK_GREY, align=PP_ALIGN.LEFT,
+            "Edifício BDA, Condomínio Dolce Vita, Via S8, Talatona\nLuanda - Angola",
+            Inches(0.28), Inches(6.45), Inches(2.65), Inches(0.29),
+            font_size=7, bold=True, color=BLACK, align=PP_ALIGN.LEFT,
         )
-
-        # BDA label — bottom right corner
-        _add_text_box(slide, "BDA", Inches(11.5), Inches(6.6), Inches(1.6), Inches(0.6),
-                      font_size=24, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.RIGHT)
-        _add_text_box(slide, "BANCO DE DESENVOLVIMENTO DE ANGOLA",
-                      Inches(8.8), Inches(7.1), Inches(4.3), Inches(0.28),
-                      font_size=6, color=DARK_GREY, align=PP_ALIGN.RIGHT)
 
         _footer(slide)
 
@@ -352,30 +529,43 @@ class BDAReportGenerator:
     def _slide_agenda(self):
         slide    = self.prs.slides.add_slide(self._blank)
         date_str = self.data.get("report_date", "")
-        _slide_title(slide, "AGENDA", date_str)
+
+        # Full-slide background image
+        if os.path.isfile(IMG_AGENDA_BG):
+            slide.shapes.add_picture(IMG_AGENDA_BG,
+                                     Inches(0), Inches(0), SLIDE_W, SLIDE_H)
+        # Inner header banner on top
+        if os.path.isfile(IMG_INNER_HEADER):
+            slide.shapes.add_picture(IMG_INNER_HEADER,
+                                     Inches(0), Inches(0), SLIDE_W, Inches(3.37))
+
+        # "AGENDA" label
+        _add_text_box(slide, "AGENDA",
+                      Inches(0.4), Inches(3.81), Inches(1.82), Inches(0.43),
+                      font_size=25, bold=True,
+                      color=RGBColor(0xD3, 0x4A, 0x36), align=PP_ALIGN.LEFT)
 
         items = [
             ("1.", "Sumário Executivo"),
             ("2.", "Liquidez (MN)"),
             ("3.", "Liquidez (ME)"),
             ("4.", "Mercado Cambial"),
-            ("5.", "Mercado Capitais"),
-            ("6.", "Informação De Mercado"),
+            ("5.", "Mercado\nCapitais"),
+            ("6.", "Informação\nDe Mercado"),
         ]
-        # Two-column layout matching the PDF
-        cols = [items[:3], items[3:]]
-        col_lefts = [Inches(0.5), Inches(7.0)]
-        for col_items, col_left in zip(cols, col_lefts):
-            for i, (num, label) in enumerate(col_items):
-                top = Inches(1.4) + i * Inches(1.5)
-                # Number — orange bold
-                _add_text_box(slide, num, col_left, top, Inches(0.5), Inches(0.5),
-                              font_size=20, bold=True, color=ORANGE_PRIMARY,
-                              align=PP_ALIGN.LEFT)
-                # Label — black bold
-                _add_text_box(slide, label,
-                              col_left + Inches(0.5), top, Inches(5.5), Inches(0.55),
-                              font_size=14, bold=True, color=BLACK, align=PP_ALIGN.LEFT)
+        col_lefts = [Inches(0.40), Inches(2.01), Inches(3.53), Inches(5.11), Inches(6.42), Inches(7.97)]
+        for i, ((num, label), col_left) in enumerate(zip(items, col_lefts)):
+            top = Inches(4.38)
+            _add_text_box(slide, num, col_left, top, Inches(0.35), Inches(0.5),
+                          font_size=19, bold=True,
+                          color=RGBColor(0xEB, 0x8B, 0x34), align=PP_ALIGN.LEFT)
+            _add_text_box(slide, label,
+                          col_left, top + Inches(0.38), Inches(1.7), Inches(1.2),
+                          font_size=14, bold=True, color=BLACK, align=PP_ALIGN.LEFT)
+
+        # BW report icon — bottom-right (12.51",5.39") 0.51x0.51in
+        _place_img(slide, IMG_ICON_REPORT_BW, Inches(12.51), Inches(5.39),
+                   Inches(0.51), Inches(0.51))
 
         _footer(slide)
 
@@ -386,50 +576,107 @@ class BDAReportGenerator:
         date_str = self.data.get("report_date", "")
         _slide_title(slide, "Sumário Executivo", date_str)
 
-        # Central KPI — Reembolso de Crédito (brown bubble)
-        rc_val = self.data.get("reembolso_credito", "—")
-        cx, cy = Inches(5.7), Inches(2.8)
-        bw, bh = Inches(2.0), Inches(1.4)
-        _add_rect(slide, cx, cy, bw, bh, BROWN_KPI, BROWN_KPI)
-        _add_text_box(slide, rc_val, cx, cy + Pt(4), bw, Inches(0.55),
-                      font_size=18, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
-        _add_text_box(slide, "Reembolso de Crédito",
-                      cx, cy + Inches(0.6), bw, Inches(0.5),
-                      font_size=7, color=WHITE, align=PP_ALIGN.CENTER)
+        # ── Chevron arrows (header area, exact original positions) ────────────
+        # Two overlapping chevrons at top-left, orange fill
+        for left_in in (0.07, 0.39):
+            sh = slide.shapes.add_shape(13, Inches(left_in), Inches(0.76),
+                                        Inches(0.47), Inches(0.38))  # 13 = chevron right
+            sh.fill.solid(); sh.fill.fore_color.rgb = ORANGE_PRIMARY
+            sh.line.fill.background()
 
-        # Satellite KPI cards — arranged around the central bubble (4 left, 4 right)
+        # ── Central oval KPI ──────────────────────────────────────────────────
+        rc_val = self.data.get("reembolso_credito", "—")
+        cx, cy = Inches(5.741), Inches(3.009)
+        bw, bh = Inches(1.779), Inches(1.491)
+        # Draw oval using shape type 9 (oval)
+        oval = slide.shapes.add_shape(9, cx, cy, bw, bh)
+        oval.fill.solid(); oval.fill.fore_color.rgb = BROWN_KPI
+        oval.line.fill.background()
+        _add_text_box(slide, rc_val,
+                      cx + Inches(0.1), cy + Inches(0.1), bw - Inches(0.2), Inches(0.65),
+                      font_size=16, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _add_text_box(slide, "Juros de DP",
+                      cx + Inches(0.1), cy + Inches(0.75), bw - Inches(0.2), Inches(0.4),
+                      font_size=9, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        # ── Satellite KPI cards ───────────────────────────────────────────────
+        # Original layout: 8 cards arranged around central oval.
+        # Each card: value box (orange bg) + label + vertical bar divider + % change box.
+        # Icons are placed above/beside each card.
         kpis = self.data.get("kpis", [
-            {"label": "Liquidez MN",       "value": "—",  "variation_str": ""},
-            {"label": "Liquidez ME",       "value": "—",  "variation_str": ""},
-            {"label": "Posição Cambial",   "value": "—",  "variation_str": ""},
-            {"label": "Carteira Títulos",  "value": "—",  "variation_str": ""},
-            {"label": "Rentabilidade MN",  "value": "—",  "variation_str": ""},
-            {"label": "Rentabilidade ME",  "value": "—",  "variation_str": ""},
-            {"label": "Rentabilidade Títulos", "value": "—", "variation_str": ""},
-            {"label": "Reembolsos",        "value": "—",  "variation_str": ""},
+            {"label": "Liquidez MN",           "value": "—",  "variation_str": ""},
+            {"label": "Liquidez ME",            "value": "—",  "variation_str": ""},
+            {"label": "Posição Cambial",        "value": "—",  "variation_str": ""},
+            {"label": "Carteira Títulos",       "value": "—",  "variation_str": ""},
+            {"label": "Rentabilidade MN",       "value": "—",  "variation_str": ""},
+            {"label": "Rentabilidade ME",       "value": "—",  "variation_str": ""},
+            {"label": "Rentabilidade Títulos",  "value": "—",  "variation_str": ""},
+            {"label": "Reembolsos",             "value": "—",  "variation_str": ""},
         ])
 
-        # Left column (4 items)
-        for i, kpi in enumerate(kpis[:4]):
-            top = Inches(0.82) + i * Inches(1.35)
-            _kpi_bubble(slide, kpi["label"], kpi["value"], Inches(0.3), top,
-                        w=Inches(2.8), h=Inches(1.0))
-            if kpi.get("variation_str"):
-                vc = _variation_color(kpi["variation_str"])
-                _add_text_box(slide, kpi["variation_str"],
-                              Inches(0.3), top + Inches(1.0), Inches(2.8), Inches(0.28),
-                              font_size=8, bold=True, color=vc, align=PP_ALIGN.LEFT)
+        # Map KPI index → (left_x, top_y, icon_path, icon_w, icon_h)
+        # Positions derived from original group shape coordinates
+        kpi_layout = [
+            # left cards (index 0-3) — original x ~ 1.76"–4.86"
+            (Inches(1.76), Inches(2.01), IMG_ICON_S3_LMN,     Inches(0.44), Inches(0.55)),  # Liquidez MN
+            (Inches(6.33), Inches(2.21), IMG_ICON_S3_LME,     Inches(0.43), Inches(0.38)),  # Liquidez ME
+            (Inches(0.49), Inches(4.15), IMG_ICON_S3_CAMBIAL, Inches(0.56), Inches(0.44)),  # Posição Cambial
+            (Inches(6.87), Inches(4.02), IMG_ICON_S3_REEMB,   Inches(0.55), Inches(0.43)),  # Reembolsos
+            # right cards (index 4-7)
+            (Inches(8.03), Inches(1.47), IMG_ICON_S3_RENTA,   Inches(0.46), Inches(0.30)),  # Rentabilidade MN
+            (Inches(8.96), Inches(2.33), IMG_ICON_S3_RENTA,   Inches(0.46), Inches(0.30)),  # Rentabilidade ME
+            (Inches(8.02), Inches(1.77), IMG_ICON_S3_RENTA,   Inches(0.46), Inches(0.30)),  # Rentabilidade Títulos
+            (Inches(9.48), Inches(4.19), IMG_ICON_S3_REEMB,   Inches(0.55), Inches(0.43)),  # Desembolsos
+        ]
 
-        # Right column (remaining items)
-        for i, kpi in enumerate(kpis[4:8]):
-            top = Inches(0.82) + i * Inches(1.35)
-            _kpi_bubble(slide, kpi["label"], kpi["value"], Inches(10.25), top,
-                        w=Inches(2.8), h=Inches(1.0))
+        for i, kpi in enumerate(kpis[:8]):
+            if i >= len(kpi_layout):
+                break
+            vl, vt, icon_path, iw, ih = kpi_layout[i]
+            # Place icon
+            _place_img(slide, icon_path, vl, vt, iw, ih)
+            # Value card (orange bg, bold)
+            card_w, card_h = Inches(2.58), Inches(1.21)
+            _add_rect(slide, vl + Inches(0.5), vt, card_w, card_h,
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 1.0)
+            _add_text_box(slide, kpi["label"],
+                          vl + Inches(0.52), vt + Pt(3), card_w - Pt(4), Inches(0.35),
+                          font_size=10, color=DARK_GREY, align=PP_ALIGN.LEFT)
+            _add_text_box(slide, kpi["value"],
+                          vl + Inches(0.52), vt + Inches(0.4), card_w - Pt(4), Inches(0.55),
+                          font_size=16, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
+            # Variation
             if kpi.get("variation_str"):
                 vc = _variation_color(kpi["variation_str"])
+                _place_img(slide, IMG_ICON_S3_VBAR, vl, vt, Inches(0.17), Inches(1.01))
                 _add_text_box(slide, kpi["variation_str"],
-                              Inches(10.25), top + Inches(1.0), Inches(2.8), Inches(0.28),
-                              font_size=8, bold=True, color=vc, align=PP_ALIGN.RIGHT)
+                              vl - Inches(2.6), vt + Inches(0.2), Inches(2.58), Inches(0.54),
+                              font_size=16, bold=True, color=vc, align=PP_ALIGN.LEFT)
+                _add_text_box(slide, "Face ao dia anterior",
+                              vl - Inches(2.6), vt + Inches(0.72), Inches(2.58), Inches(0.3),
+                              font_size=7, color=DARK_GREY, align=PP_ALIGN.LEFT)
+
+        # Enquadramento text box — exact original: L=0.919 T=2.073 W=3.256 H=1.178
+        enquadramento = self.data.get("enquadramento", "")
+        if enquadramento:
+            _add_rect(slide, Inches(0.919), Inches(2.073), Inches(3.256), Inches(1.178),
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+            _add_text_box(slide, f"Enquadramento: {enquadramento}",
+                          Inches(0.95), Inches(2.10), Inches(3.19), Inches(1.12),
+                          font_size=8, color=BLACK, word_wrap=True)
+
+        # Breve conclusão — exact original: L=8.668 T=2.420 W=3.256 H=0.909
+        conclusao = self.data.get("conclusao", "")
+        if conclusao:
+            _add_rect(slide, Inches(8.668), Inches(2.420), Inches(3.256), Inches(0.909),
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+            _add_text_box(slide, f"Breve conclusão: {conclusao}",
+                          Inches(8.70), Inches(2.45), Inches(3.19), Inches(0.85),
+                          font_size=8, color=BLACK, word_wrap=True)
+
+        # Coloured report icon — bottom-right (original: 0.35x0.35" @ 10.74",6.42")
+        _place_img(slide, IMG_ICON_S3_REPORT, Inches(10.74), Inches(6.42),
+                   Inches(0.35), Inches(0.35))
 
         _footer(slide)
 
@@ -479,11 +726,6 @@ class BDAReportGenerator:
         top += Inches(0.28)
         _table_header_row(slide, tx_heads, tx_lefts, top, row_h, tx_widths)
 
-        tx_rows = self.data.get("transacoes_mn_rows", [
-            {"label": "OMA  Cedencia  BNA  10%  8 768 000 000  1  2 402 192",
-             "values": [""] * 5},
-        ])
-        # Accept both simple list-of-dicts and flat rows
         raw_tx = self.data.get("transacoes_mn_raw", [])
         for i, row in enumerate(raw_tx):
             top += row_h
@@ -549,12 +791,26 @@ class BDAReportGenerator:
             bg = ORANGE_LIGHT if i % 2 == 0 else WHITE
             rate = luibor.get(t, "—")
             var  = luibor_var.get(t, "—")
-            # Prev D-2 and D-1: use same value if not provided separately
             _table_data_row(
                 slide,
                 [t, rate, rate, rate, var],
                 lu_lefts, top, row_h, lu_widths, bg=bg,
             )
+
+        # ── Summary ovals (Liquidez Total + Juros Diário MN) — exact original positions
+        lmn_rows = self.data.get("liquidez_mn_rows", [])
+        total_mn = lmn_rows[-1]["values"][-1] if lmn_rows else "—"
+        juros_mn = self.data.get("juros_diario_mn", "—")
+        # Oval 4: L=2.680 T=5.384 W=1.096 H=0.865
+        _summary_oval(slide, "Liquidez Total", total_mn,
+                      Inches(2.680), Inches(5.384), Inches(1.096), Inches(0.865))
+        # Oval 5: L=4.202 T=5.403 W=1.096 H=0.865
+        _summary_oval(slide, "Juros Diário", juros_mn,
+                      Inches(4.202), Inches(5.403), Inches(1.096), Inches(0.865))
+
+        # Icons — exact original positions
+        _place_img(slide, IMG_ICON_GEAR,       Inches(6.37), Inches(5.45), Inches(0.81), Inches(0.78))
+        _place_img(slide, IMG_ICON_CALCULATOR, Inches(7.74), Inches(5.59), Inches(0.57), Inches(0.67))
 
         _footer(slide)
 
@@ -629,6 +885,9 @@ class BDAReportGenerator:
             _table_data_row(slide,
                             [row["label"], str(row["n_ops"]), str(row["montante"])],
                             pl_lefts, top, row_h, pl_w, bg=bg)
+
+        # ── Pie charts — DESEMBOLSOS and REEMBOLSOS ───────────────────────────
+        self._add_pie_charts_mn(slide)
 
         _footer(slide)
 
@@ -734,6 +993,21 @@ class BDAReportGenerator:
                             lefts, top, row_h, widths,
                             highlight=is_total, bg=bg)
 
+        # ── Summary ovals (Liquidez Total ME + Juros Diário ME) — exact original positions
+        lme_rows = self.data.get("liquidez_me_rows", [])
+        total_me = lme_rows[-1]["values"][-1] if lme_rows else "—"
+        juros_me = self.data.get("juros_diario_me", "—")
+        # Oval ME total: L=2.817 T=5.260 W=1.176 H=0.941
+        _summary_oval(slide, "Liquidez Total", total_me,
+                      Inches(2.817), Inches(5.260), Inches(1.176), Inches(0.941))
+        # Oval ME juros: L=4.350 T=5.260 W=1.175 H=0.941
+        _summary_oval(slide, "Juros Diário", juros_me,
+                      Inches(4.350), Inches(5.260), Inches(1.175), Inches(0.941))
+
+        # Icon — exact original position (5.88",5.61") 0.61x0.71in
+        _place_img(slide, IMG_ICON_CALCULATOR, Inches(5.88), Inches(5.61),
+                   Inches(0.61), Inches(0.71))
+
         _footer(slide)
 
     # ── Slide 7: Mercado Cambial ──────────────────────────────────────────────
@@ -824,14 +1098,19 @@ class BDAReportGenerator:
                 tm_lefts, top, row_h, tm_w, bg=bg,
             )
 
-        # ── Right panel — KPI summary bubbles ────────────────────────────────
-        right_x = Inches(7.0)
-        _kpi_bubble(slide, "Transações (USD)",
-                    cambial.get("vol_total_usd", "—"), right_x, Inches(0.82),
-                    w=Inches(2.9), h=Inches(1.0))
-        _kpi_bubble(slide, "Posição Cambial (Kz)",
-                    cambial.get("posicao_cambial", "—"), right_x + Inches(3.1), Inches(0.82),
-                    w=Inches(2.9), h=Inches(1.0))
+        # ── Right panel — KPI summary ovals — exact original positions
+        # Oval USD: L=8.502 T=1.422 W=1.241 H=0.976
+        _summary_oval(slide, "Transações (USD)", cambial.get("vol_total_usd", "—"),
+                      Inches(8.502), Inches(1.422), Inches(1.241), Inches(0.976))
+        # Oval Kz: L=10.308 T=1.454 W=1.241 H=0.954
+        _summary_oval(slide, "Posição Cambial (Kz)", cambial.get("posicao_cambial", "—"),
+                      Inches(10.308), Inches(1.454), Inches(1.241), Inches(0.954))
+
+        # Icons — exact original positions
+        _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.55), Inches(2.45),
+                   Inches(0.54), Inches(0.54))
+        _place_img(slide, IMG_ICON_FX_EXCHANGE,  Inches(12.09), Inches(0.67),
+                   Inches(0.47), Inches(0.47))
 
         _footer(slide)
 
@@ -875,10 +1154,10 @@ class BDAReportGenerator:
                             sp_lefts, top, row_h, sp_w,
                             highlight=is_total, bg=bg)
 
-        # KPI summary bubble
+        # KPI summary oval — exact original: L=4.721 T=3.159 W=1.473 H=1.058
         total_atual = self.data.get("bodiva_total_transacoes", "—")
-        _kpi_bubble(slide, "Kz  Transações", total_atual,
-                    SLIDE_W - Inches(3.5), Inches(0.82), w=Inches(3.0), h=Inches(1.0))
+        _summary_oval(slide, "Kz  Transações", total_atual,
+                      Inches(4.721), Inches(3.159), Inches(1.473), Inches(1.058))
 
         # ── Mercado de Bolsas de Acções ───────────────────────────────────────
         top += row_h + Inches(0.18)
@@ -949,13 +1228,15 @@ class BDAReportGenerator:
             top += row_h
             _table_data_row(slide, ["—"] * n_tx, tx_lefts, top, row_h, tx_widths, font_size=7)
 
-        # KPI bubbles — Transações + Juros Diário
+        # KPI ovals — exact original positions
+        # Oval transações: L=4.930 T=2.319 W=1.256 H=0.881
         tx_kpi_val  = self.data.get("bodiva_transacoes_valor", "0,00 mM Kz")
         jd_kpi_val  = self.data.get("bodiva_juros_diario",    "—")
-        _kpi_bubble(slide, "Kz  Transações",  tx_kpi_val,  Inches(3.0),  Inches(1.8),
-                    w=Inches(2.8), h=Inches(0.95))
-        _kpi_bubble(slide, "Kz  Juros Diário", jd_kpi_val, Inches(6.2),  Inches(1.8),
-                    w=Inches(2.8), h=Inches(0.95))
+        _summary_oval(slide, "Kz  Transações",  tx_kpi_val,
+                      Inches(4.930), Inches(2.319), Inches(1.256), Inches(0.881))
+        # Oval juros: L=6.187 T=2.319 W=1.256 H=0.881
+        _summary_oval(slide, "Kz  Juros Diário", jd_kpi_val,
+                      Inches(6.187), Inches(2.319), Inches(1.256), Inches(0.881))
 
         # ── Carteira de Títulos ───────────────────────────────────────────────
         top = Inches(3.1)
@@ -999,10 +1280,11 @@ class BDAReportGenerator:
         market = self.data.get("market_info", {})
         row_h  = Inches(0.28)
         left0  = Inches(0.3)
-        # Split: left table ~47 %, right commentary ~50 %
+        # Left table width, right commentary panel — exact original positions
         tbl_w  = Inches(6.0)
-        com_x  = Inches(6.6)
-        com_w  = SLIDE_W - com_x - Inches(0.25)
+        # Commentary box: L=7.134 T=0.662 W=5.702 H=2.077  (original Rectangle 15)
+        com_x  = Inches(7.134)
+        com_w  = Inches(5.702)
 
         # ── Capital Markets table ─────────────────────────────────────────────
         top = Inches(0.78)
@@ -1033,13 +1315,22 @@ class BDAReportGenerator:
                             [row["indice"], row["anterior"], row["atual"], row["variacao"]],
                             cm_lefts, top, row_h, cm_w, bg=bg)
 
-        # Commentary — right panel
+        # Commentary — right panel: L=7.134 T=0.662 W=5.702 H=2.077
         cm_comment = market.get("cm_commentary", "")
         if cm_comment:
-            _add_rect(slide, com_x, Inches(0.78), com_w, Inches(3.0), ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+            _add_rect(slide, com_x, Inches(0.662), com_w, Inches(2.077),
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
             _add_text_box(slide, cm_comment,
-                          com_x + Pt(6), Inches(0.82), com_w - Pt(12), Inches(2.9),
+                          com_x + Pt(6), Inches(0.69), com_w - Pt(12), Inches(2.0),
                           font_size=8, color=BLACK, word_wrap=True)
+
+        # "Nota" tag — exact original: L=12.340 T=3.327 W=0.598 H=0.315
+        _add_rect(slide, Inches(12.340), Inches(3.327), Inches(0.598), Inches(0.315),
+                  ORANGE_PRIMARY)
+        _add_text_box(slide, "Nota", Inches(12.344), Inches(3.331),
+                      Inches(0.590), Inches(0.307),
+                      font_size=8, bold=True, italic=True,
+                      color=WHITE, align=PP_ALIGN.CENTER)
 
         # ── Criptomoedas ──────────────────────────────────────────────────────
         top = Inches(4.4)
@@ -1066,21 +1357,18 @@ class BDAReportGenerator:
                             [row["moeda"], row["anterior"], row["atual"], row["variacao"]],
                             cr_lefts, top, row_h, cr_w, bg=bg)
 
-        # Crypto commentary — right panel
+        # Crypto commentary — exact original: L=7.083 T=4.068 W=5.804 H=1.386
         cr_comment = market.get("crypto_commentary", "")
         if cr_comment:
-            _add_rect(slide, com_x, Inches(4.4), com_w, Inches(2.6), ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+            _add_rect(slide, Inches(7.083), Inches(4.068), Inches(5.804), Inches(1.386),
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
             _add_text_box(slide, cr_comment,
-                          com_x + Pt(6), Inches(4.44), com_w - Pt(12), Inches(2.5),
+                          Inches(7.10), Inches(4.09), Inches(5.760), Inches(1.340),
                           font_size=8, color=BLACK, word_wrap=True)
 
-        # "Nota" tag — matches PDF
-        _add_rect(slide, com_x, top + row_h + Inches(0.05), Inches(1.0), Inches(0.25),
-                  ORANGE_PRIMARY)
-        _add_text_box(slide, "Nota", com_x + Pt(2), top + row_h + Inches(0.06),
-                      Inches(0.96), Inches(0.22),
-                      font_size=8, bold=True, italic=True,
-                      color=WHITE, align=PP_ALIGN.CENTER)
+        # Icon — report+money: exact original L=6.619 T=1.404 (from chevron cluster area)
+        _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.43), Inches(0.75),
+                   Inches(0.39), Inches(0.39))
 
         _footer(slide)
 
@@ -1095,8 +1383,9 @@ class BDAReportGenerator:
         row_h  = Inches(0.28)
         left0  = Inches(0.3)
         tbl_w  = Inches(6.0)
-        com_x  = Inches(6.6)
-        com_w  = SLIDE_W - com_x - Inches(0.25)
+        # Commentary panels — exact original positions
+        # Commodities box: L=7.052 T=0.723 W=5.572 H=1.572
+        # Minerals box:    L=7.187 T=3.792 W=5.465 H=1.413
 
         # ── Commodities ───────────────────────────────────────────────────────
         top = Inches(0.78)
@@ -1104,8 +1393,8 @@ class BDAReportGenerator:
         cmd_heads = ["Commodity", "Anterior", "Actual", "(%)"]
         cmd_w     = [Inches(2.4), Inches(1.2), Inches(1.2), Inches(1.2)]
         cmd_lefts = [left0]
-        for w in cmd_heads[:-1]:
-            cmd_lefts.append(cmd_lefts[-1] + cmd_w[len(cmd_lefts) - 1])
+        for _h in cmd_w[:-1]:
+            cmd_lefts.append(cmd_lefts[-1] + _h)
         top += Inches(0.28)
         _table_header_row(slide, cmd_heads, cmd_lefts, top, row_h, cmd_w)
 
@@ -1127,12 +1416,13 @@ class BDAReportGenerator:
                             [row["nome"], row["anterior"], row["atual"], row["variacao"]],
                             cmd_lefts, top, row_h, cmd_w, bg=bg)
 
-        # Commodities commentary
+        # Commodities commentary — exact original: L=7.052 T=0.723 W=5.572 H=1.572
         cmd_comment = market.get("commodities_commentary", "")
         if cmd_comment:
-            _add_rect(slide, com_x, Inches(0.78), com_w, Inches(3.0), ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+            _add_rect(slide, Inches(7.052), Inches(0.723), Inches(5.572), Inches(1.572),
+                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
             _add_text_box(slide, cmd_comment,
-                          com_x + Pt(6), Inches(0.82), com_w - Pt(12), Inches(2.9),
+                          Inches(7.08), Inches(0.75), Inches(5.53), Inches(1.52),
                           font_size=8, color=BLACK, word_wrap=True)
 
         # ── Minerais ──────────────────────────────────────────────────────────
@@ -1155,23 +1445,28 @@ class BDAReportGenerator:
                             [row["nome"], row["anterior"], row["atual"], row["variacao"]],
                             cmd_lefts, top, row_h, cmd_w, bg=bg)
 
-        # Minerals commentary
+        # Minerals commentary — exact original: L=7.187 T=3.792 W=5.465 H=1.413
         min_comment = market.get("minerais_commentary", "")
         if min_comment:
-            _add_rect(slide, com_x, top - Inches(4 * 0.28), com_w, Inches(2.6),
+            _add_rect(slide, Inches(7.187), Inches(3.792), Inches(5.465), Inches(1.413),
                       ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
             _add_text_box(slide, min_comment,
-                          com_x + Pt(6), top - Inches(4 * 0.28) + Pt(4),
-                          com_w - Pt(12), Inches(2.5),
+                          Inches(7.22), Inches(3.82), Inches(5.42), Inches(1.37),
                           font_size=8, color=BLACK, word_wrap=True)
 
-        # "Nota" tag
-        _add_rect(slide, com_x, top + row_h + Inches(0.05), Inches(1.0), Inches(0.25),
+        # "Nota" tag — exact original: L=12.683 T=3.941 W≈0.598 H≈0.315
+        _add_rect(slide, Inches(12.683), Inches(3.941), Inches(0.598), Inches(0.315),
                   ORANGE_PRIMARY)
-        _add_text_box(slide, "Nota", com_x + Pt(2), top + row_h + Inches(0.06),
-                      Inches(0.96), Inches(0.22),
+        _add_text_box(slide, "Nota", Inches(12.687), Inches(3.945),
+                      Inches(0.590), Inches(0.307),
                       font_size=8, bold=True, italic=True,
                       color=WHITE, align=PP_ALIGN.CENTER)
+
+        # Icons — exact original positions
+        _place_img(slide, IMG_ICON_GLOBE,        Inches(0.10), Inches(1.32),
+                   Inches(0.63), Inches(0.62))
+        _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.28), Inches(0.90),
+                   Inches(0.39), Inches(0.39))
 
         _footer(slide)
 
