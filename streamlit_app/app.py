@@ -19,6 +19,8 @@ if _project_root not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from src.llm.llm_client import get_provider_name
+
 st.set_page_config(
     page_title="Teko – BDA Daily Report",
     layout="wide",
@@ -667,16 +669,20 @@ with tab3:
     st.header("Gerar Relatório")
 
     report_date = st.date_input("Data do Relatório", datetime.now())
+    provider_label = get_provider_name().upper()
 
     col_ai, col_hint = st.columns(2)
     with col_ai:
         use_ai = st.checkbox(
-            "Usar Resumos IA (Gemini)",
+            f"Usar Resumos IA ({provider_label})",
             value=False,
-            help="Requer GEMINI_API_KEY no ficheiro .env",
+            help="Requer configuração do provider LLM no ficheiro .env",
         )
     with col_hint:
-        st.info("💡 Para activar a IA: adicione `GEMINI_API_KEY=<chave>` ao ficheiro `.env`.")
+        st.info(
+            "💡 Para activar a IA: configure `LLM_PROVIDER` e a chave do provider "
+            "(`OPENAI_API_KEY` ou `GEMINI_API_KEY`) no ficheiro `.env`."
+        )
 
     if st.button("📊 Gerar Relatório PowerPoint", type="primary"):
         ed  = st.session_state.external_data
