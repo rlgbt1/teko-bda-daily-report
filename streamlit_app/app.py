@@ -296,29 +296,6 @@ with tab1:
         fornecedores_val = pl_c2.number_input("Fornecedores — Montante (Kz)", value=0.0, format="%.2f",
                                               key="forn_val")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # SECTION: PIE CHARTS — DESEMBOLSOS + REEMBOLSOS (Slide 5)
-    # ─────────────────────────────────────────────────────────────────────────
-    with st.expander("🥧 Gráficos — Desembolsos & Reembolsos (Slide 5)"):
-        st.caption("Estes dados geram os gráficos circulares que aparecem em LIQUIDEZ MN (2/2).")
-        pie_c1, pie_c2 = st.columns(2)
-        with pie_c1:
-            st.markdown("**DESEMBOLSOS — valor total**")
-            desembolsos_total = st.number_input("Total Desembolsos (M Kz)", value=0.0,
-                                                format="%.2f", key="pie_desemb_total")
-        with pie_c2:
-            st.markdown("**REEMBOLSOS — clientes/parcelas**")
-            n_reemb = st.number_input("Nº de parcelas/clientes", min_value=0, max_value=10,
-                                      value=0, step=1, key="n_reemb_pie")
-            reembolsos_pie = []
-            for i in range(int(n_reemb)):
-                rc1, rc2 = st.columns(2)
-                label = rc1.text_input(f"Cliente/Parcela {i+1}", key=f"reemb_lbl_{i}")
-                valor = rc2.number_input(f"Valor (M Kz)", value=0.0, format="%.2f",
-                                         key=f"reemb_val_{i}")
-                if label:
-                    reembolsos_pie.append({"label": label, "valor": valor})
-
     st.divider()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -615,10 +592,6 @@ with tab1:
             "bodiva_operacoes":         bodiva_operacoes,
             "bodiva_transacoes_valor":  f"{bodiva_transacoes_valor:,.2f} mM Kz" if bodiva_transacoes_valor else "0,00 mM Kz",
             "bodiva_juros_diario":      f"{bodiva_juros_diario:,.2f} M Kz" if bodiva_juros_diario else "—",
-
-            # Pie charts (slide 5)
-            "desembolsos_total": desembolsos_total,
-            "reembolsos_pie":    reembolsos_pie,
         }
         st.success("✅ Dados internos guardados!")
 

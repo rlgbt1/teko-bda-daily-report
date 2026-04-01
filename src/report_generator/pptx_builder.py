@@ -133,33 +133,28 @@ def _add_text_box(slide, text: str, left, top, width, height,
 
 def _slide_title(slide, title: str, date_str: str = ""):
     """
-    Inner slide header: real brand image on top, bold title below it, then a rule.
-    Falls back to a solid accent strip if the image file is missing.
+    Inner slide header — matches reference exactly:
+      • Small orange left accent block  (object 131: L=0 T=0.401 W=0.277 H=0.397)
+      • Bold title text                 (object 132: L=0.396 T=0.224 W=11.321 H=0.351 20pt)
+      • Thin orange horizontal rule     (Straight Connector at T=0.607)
+    NO full-width image — the reference inner slides have none.
     """
-    # Orange header image (Angola map + chart)
-    if os.path.isfile(IMG_INNER_HEADER):
-        slide.shapes.add_picture(IMG_INNER_HEADER,
-                                 Inches(0), Inches(0), SLIDE_W, Inches(0.52))
-    else:
-        _add_rect(slide, Inches(0), Inches(0), SLIDE_W, Inches(0.06), ORANGE_PRIMARY)
-
-    # Thin left accent marker (small orange block, matches original)
-    _add_rect(slide, Inches(0), Inches(0.4), Inches(0.28), Inches(0.4), ORANGE_PRIMARY)
+    # Small orange left accent marker
+    _add_rect(slide, Inches(0), Inches(0.401), Inches(0.277), Inches(0.397), ORANGE_PRIMARY)
 
     # Bold section title
     _add_text_box(slide, title,
-                  Inches(0.4), Inches(0.22), Inches(10.8), Inches(0.48),
-                  font_size=20, bold=True,
-                  color=BLACK, align=PP_ALIGN.LEFT)
+                  Inches(0.396), Inches(0.224), Inches(11.321), Inches(0.351),
+                  font_size=20, bold=True, color=BLACK, align=PP_ALIGN.LEFT)
 
     # Date — right-aligned, smaller, grey
     if date_str:
         _add_text_box(slide, date_str,
-                      Inches(10.8), Inches(0.22), Inches(2.3), Inches(0.4),
+                      Inches(11.5), Inches(0.224), Inches(1.6), Inches(0.351),
                       font_size=10, color=DARK_GREY, align=PP_ALIGN.RIGHT)
 
-    # Thin orange horizontal rule under title
-    _add_rect(slide, Inches(0.4), Inches(0.62), SLIDE_W - Inches(0.55), Inches(0.02),
+    # Thin orange horizontal rule under title (T=0.607 matches reference connector)
+    _add_rect(slide, Inches(0.396), Inches(0.607), SLIDE_W - Inches(0.6), Inches(0.015),
               ORANGE_PRIMARY)
 
 
@@ -459,6 +454,80 @@ class BDAReportGenerator:
         slide.shapes.add_picture(buf_r, Inches(8.52), Inches(3.45),
                                   Inches(4.09), Inches(2.4))
 
+    # ── Cambial charts helper (Slide 7) ──────────────────────────────────────
+
+    def _add_cambial_charts(self, slide):
+        """
+        Embeds two charts on the right half of Slide 7:
+          1. Bar chart — Posição Cambial (Activos vs Passivos in M USD)
+          2. Line chart — Taxa de Câmbio USD/AKZ over D-2, D-1, D
+        """
+        import io
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+        except ImportError:
+            return
+
+        cambial = self.data.get("cambial", {})
+        bar_colors = ["#E8751A", "#5C2D00"]
+
+        # ── Bar chart: Activos vs Passivos ────────────────────────────────────
+        activos  = float(str(cambial.get("activos_usd",  0)).replace(",", ".") or 0)
+        passivos = float(str(cambial.get("passivos_usd", 0)).replace(",", ".") or 0)
+
+        fig1, ax1 = plt.subplots(figsize=(2.8, 2.2))
+        fig1.patch.set_alpha(0)
+        ax1.set_facecolor("none")
+        bars = ax1.bar(["Activos", "Passivos"], [activos, passivos],
+                       color=bar_colors, edgecolor="white", width=0.5)
+        for bar, val in zip(bars, [activos, passivos]):
+            if val:
+                ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                         f"{val:.1f}", ha="center", va="bottom", fontsize=7, color="#333333")
+        ax1.set_title("Posição Cambial (M USD)", fontsize=8, fontweight="bold", color="#333333", pad=4)
+        ax1.tick_params(axis="both", labelsize=7)
+        ax1.spines[["top", "right"]].set_visible(False)
+        ax1.set_ylabel("M USD", fontsize=6, color="#555555")
+        buf1 = io.BytesIO()
+        fig1.savefig(buf1, format="png", bbox_inches="tight", transparent=True, dpi=150)
+        plt.close(fig1)
+        buf1.seek(0)
+        slide.shapes.add_picture(buf1, Inches(6.9), Inches(0.78), Inches(2.9), Inches(2.3))
+
+        # ── Line chart: USD/AKZ over 3 periods ───────────────────────────────
+        cambial_rows = self.data.get("cambial_rows", [])
+        usd_row = next((r for r in cambial_rows if "USD" in r.get("par", "").upper()
+                        and "EUR" not in r.get("par", "").upper()), None)
+
+        if usd_row:
+            try:
+                d2  = float(str(usd_row.get("anterior2", "0")).replace(",", "."))
+                d1  = float(str(usd_row.get("anterior",  "0")).replace(",", "."))
+                d   = float(str(usd_row.get("atual",     "0")).replace(",", "."))
+                rates = [d2, d1, d]
+            except ValueError:
+                rates = [0, 0, 0]
+        else:
+            rates = [0, 0, 0]
+
+        fig2, ax2 = plt.subplots(figsize=(2.8, 2.2))
+        fig2.patch.set_alpha(0)
+        ax2.set_facecolor("none")
+        ax2.plot(["D-2", "D-1", "D"], rates, color="#E8751A", linewidth=2,
+                 marker="o", markersize=5, markerfacecolor="#5C2D00")
+        ax2.fill_between(["D-2", "D-1", "D"], rates, alpha=0.15, color="#E8751A")
+        ax2.set_title("Taxa USD/AKZ", fontsize=8, fontweight="bold", color="#333333", pad=4)
+        ax2.tick_params(axis="both", labelsize=7)
+        ax2.spines[["top", "right"]].set_visible(False)
+        ax2.set_ylabel("AKZ", fontsize=6, color="#555555")
+        buf2 = io.BytesIO()
+        fig2.savefig(buf2, format="png", bbox_inches="tight", transparent=True, dpi=150)
+        plt.close(fig2)
+        buf2.seek(0)
+        slide.shapes.add_picture(buf2, Inches(10.0), Inches(0.78), Inches(2.9), Inches(2.3))
+
     # ── Public ────────────────────────────────────────────────────────────────
 
     def build(self, output_path: str = "output/bda_report.pptx") -> str:
@@ -637,42 +706,23 @@ class BDAReportGenerator:
             _place_img(slide, icon_path, vl, vt, iw, ih)
             # Value card (orange bg, bold)
             card_w, card_h = Inches(2.58), Inches(1.21)
-            _add_rect(slide, vl + Inches(0.5), vt, card_w, card_h,
+            card_left = vl + Inches(0.5)
+            _add_rect(slide, card_left, vt, card_w, card_h,
                       ORANGE_LIGHT, ORANGE_PRIMARY, 1.0)
             _add_text_box(slide, kpi["label"],
-                          vl + Inches(0.52), vt + Pt(3), card_w - Pt(4), Inches(0.35),
-                          font_size=10, color=DARK_GREY, align=PP_ALIGN.LEFT)
+                          card_left + Pt(4), vt + Pt(3), card_w - Pt(8), Inches(0.32),
+                          font_size=9, color=DARK_GREY, align=PP_ALIGN.LEFT)
             _add_text_box(slide, kpi["value"],
-                          vl + Inches(0.52), vt + Inches(0.4), card_w - Pt(4), Inches(0.55),
-                          font_size=16, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
-            # Variation
+                          card_left + Pt(4), vt + Inches(0.35), card_w - Pt(8), Inches(0.5),
+                          font_size=15, bold=True, color=ORANGE_PRIMARY, align=PP_ALIGN.LEFT)
+            # Variation — placed at bottom of card (avoids going off-screen)
             if kpi.get("variation_str"):
                 vc = _variation_color(kpi["variation_str"])
-                _place_img(slide, IMG_ICON_S3_VBAR, vl, vt, Inches(0.17), Inches(1.01))
                 _add_text_box(slide, kpi["variation_str"],
-                              vl - Inches(2.6), vt + Inches(0.2), Inches(2.58), Inches(0.54),
-                              font_size=16, bold=True, color=vc, align=PP_ALIGN.LEFT)
-                _add_text_box(slide, "Face ao dia anterior",
-                              vl - Inches(2.6), vt + Inches(0.72), Inches(2.58), Inches(0.3),
-                              font_size=7, color=DARK_GREY, align=PP_ALIGN.LEFT)
+                              card_left + Pt(4), vt + Inches(0.85), card_w - Pt(8), Inches(0.28),
+                              font_size=9, bold=True, color=vc, align=PP_ALIGN.LEFT)
 
-        # Enquadramento text box — exact original: L=0.919 T=2.073 W=3.256 H=1.178
-        enquadramento = self.data.get("enquadramento", "")
-        if enquadramento:
-            _add_rect(slide, Inches(0.919), Inches(2.073), Inches(3.256), Inches(1.178),
-                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
-            _add_text_box(slide, f"Enquadramento: {enquadramento}",
-                          Inches(0.95), Inches(2.10), Inches(3.19), Inches(1.12),
-                          font_size=8, color=BLACK, word_wrap=True)
-
-        # Breve conclusão — exact original: L=8.668 T=2.420 W=3.256 H=0.909
-        conclusao = self.data.get("conclusao", "")
-        if conclusao:
-            _add_rect(slide, Inches(8.668), Inches(2.420), Inches(3.256), Inches(0.909),
-                      ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
-            _add_text_box(slide, f"Breve conclusão: {conclusao}",
-                          Inches(8.70), Inches(2.45), Inches(3.19), Inches(0.85),
-                          font_size=8, color=BLACK, word_wrap=True)
+        # Enquadramento and Breve Conclusão are intentionally excluded from dashboard layout
 
         # Coloured report icon — bottom-right (original: 0.35x0.35" @ 10.74",6.42")
         _place_img(slide, IMG_ICON_S3_REPORT, Inches(10.74), Inches(6.42),
@@ -687,17 +737,20 @@ class BDAReportGenerator:
         date_str = self.data.get("report_date", "")
         _slide_title(slide, "LIQUIDEZ – MOEDA NACIONAL", date_str)
 
-        days       = self.data.get("liquidez_mn_days", ["D-4", "D-3", "D-2", "D-1", "D"])
-        row_h      = Inches(0.28)
-        label_w    = Inches(3.4)
-        col_w      = Inches(1.72)
-        left0      = Inches(0.3)
-        lefts      = [left0] + [left0 + label_w + i * col_w for i in range(5)]
-        widths     = [label_w] + [col_w] * 5
+        days    = self.data.get("liquidez_mn_days", ["D-4", "D-3", "D-2", "D-1", "D"])
+        row_h   = Inches(0.28)
+        # Reference: L=0.407 W=8.557 — leave right panel (L>9") for KPI graphics
+        left0   = Inches(0.407)
+        tbl_w   = Inches(8.557)
+        label_w = Inches(3.0)
+        col_w   = (tbl_w - label_w) / 5
+        lefts   = [left0] + [left0 + label_w + i * col_w for i in range(5)]
+        widths  = [label_w] + [col_w] * 5
 
-        # ── Section: Liquidez MN table ────────────────────────────────────────
-        top = Inches(0.78)
-        _section_bar(slide, "Liquidez MN  (Em Milhares)", left0, top, SLIDE_W - Inches(0.5))
+        # ── Section: Liquidez MN table ─────────────────────────────────────────
+        # Reference: Objeto 28 at T=0.7 H=1.417
+        top = Inches(0.70)
+        _section_bar(slide, "Liquidez MN  (Em Milhares)", left0, top, tbl_w)
         top += Inches(0.28)
         _table_header_row(slide, [""] + days, lefts, top, row_h, widths)
 
@@ -715,40 +768,37 @@ class BDAReportGenerator:
             _table_data_row(slide, [row["label"]] + row["values"],
                             lefts, top, row_h, widths, highlight=is_total, bg=bg)
 
-        # ── Section: Transações (OMA) ─────────────────────────────────────────
-        top += row_h + Inches(0.12)
-        _section_bar(slide, "Transações", left0, top, SLIDE_W - Inches(0.5))
-        tx_heads = ["Tipo", "Contraparte", "Taxa", "Montante", "Maturidade", "Juros"]
-        tx_widths = [Inches(1.5), Inches(2.0), Inches(1.2), Inches(2.5), Inches(2.0), Inches(3.83)]
+        # ── Section: Transações (OMA) — reference Objeto 29 at T=2.204 H=0.741
+        top = Inches(2.204)
+        _section_bar(slide, "Transações", left0, top, tbl_w)
+        tx_heads  = ["Tipo", "Contraparte", "Taxa", "Montante", "Maturidade", "Juros"]
+        tx_w_list = [Inches(1.1), Inches(1.8), Inches(0.9), Inches(1.8), Inches(1.6), Inches(1.357)]
         tx_lefts  = [left0]
-        for w in tx_widths[:-1]:
+        for w in tx_w_list[:-1]:
             tx_lefts.append(tx_lefts[-1] + w)
         top += Inches(0.28)
-        _table_header_row(slide, tx_heads, tx_lefts, top, row_h, tx_widths)
+        _table_header_row(slide, tx_heads, tx_lefts, top, row_h, tx_w_list)
 
         raw_tx = self.data.get("transacoes_mn_raw", [])
         for i, row in enumerate(raw_tx):
             top += row_h
             bg = ORANGE_LIGHT if i % 2 == 0 else WHITE
             vals = [
-                row.get("tipo", "OMA"),
-                row.get("contraparte", "—"),
-                row.get("taxa", "—"),
-                row.get("montante", "—"),
-                row.get("maturidade", "—"),
-                row.get("juros", "—"),
+                row.get("tipo", "OMA"), row.get("contraparte", "—"),
+                row.get("taxa", "—"),   row.get("montante", "—"),
+                row.get("maturidade", "—"), row.get("juros", "—"),
             ]
-            _table_data_row(slide, vals, tx_lefts, top, row_h, tx_widths, bg=bg)
+            _table_data_row(slide, vals, tx_lefts, top, row_h, tx_w_list, bg=bg)
         if not raw_tx:
             top += row_h
-            _table_data_row(slide, ["—"] * 6, tx_lefts, top, row_h, tx_widths)
+            _table_data_row(slide, ["—"] * 6, tx_lefts, top, row_h, tx_w_list)
 
-        # ── Section: Operações Vivas ──────────────────────────────────────────
-        top += row_h + Inches(0.12)
-        _section_bar(slide, "Operações Vivas", left0, top, SLIDE_W - Inches(0.5))
-        op_heads = ["Tipo", "Contraparte", "Montante", "Taxa", "Residual (Dias)", "Vencimento", "Juro Diário"]
-        n_op = len(op_heads)
-        op_w = (SLIDE_W - Inches(0.5)) / n_op
+        # ── Section: Operações Vivas — reference Objeto 31 at T=3.012 H=2.116
+        top = Inches(3.012)
+        _section_bar(slide, "Operações Vivas", left0, top, tbl_w)
+        op_heads  = ["Tipo", "Contraparte", "Montante", "Taxa", "Residual", "Vencimento", "Juro Diário"]
+        n_op      = len(op_heads)
+        op_w      = tbl_w / n_op
         op_lefts  = [left0 + i * op_w for i in range(n_op)]
         op_widths = [op_w] * n_op
         top += Inches(0.28)
@@ -774,11 +824,11 @@ class BDAReportGenerator:
 
         # ── Section: LUIBOR ───────────────────────────────────────────────────
         top += row_h + Inches(0.12)
-        _section_bar(slide, "Taxas LUIBOR", left0, top, SLIDE_W - Inches(0.5))
-        tenors  = ["LUIBOR O/N", "LUIBOR 1M", "LUIBOR 3M", "LUIBOR 6M", "LUIBOR 9M", "LUIBOR 12M"]
-        lu_heads = ["Maturidade", "Anterior (D-2)", "Anterior (D-1)", "Actual (D)", "Var (%)"]
-        lu_n    = len(lu_heads)
-        lu_w    = (SLIDE_W - Inches(0.5)) / lu_n
+        _section_bar(slide, "Taxas LUIBOR", left0, top, tbl_w)
+        tenors    = ["LUIBOR O/N", "LUIBOR 1M", "LUIBOR 3M", "LUIBOR 6M", "LUIBOR 9M", "LUIBOR 12M"]
+        lu_heads  = ["Maturidade", "Anterior (D-2)", "Anterior (D-1)", "Actual (D)", "Var (%)"]
+        lu_n      = len(lu_heads)
+        lu_w      = tbl_w / lu_n
         lu_lefts  = [left0 + i * lu_w for i in range(lu_n)]
         lu_widths = [lu_w] * lu_n
         top += Inches(0.28)
@@ -892,25 +942,30 @@ class BDAReportGenerator:
         _footer(slide)
 
     # ── Slide 6: Liquidez ME ──────────────────────────────────────────────────
+    # Reference layout: 3 tables on left (W=7.784), Fluxos ME on right (L=8.23)
 
     def _slide_liquidez_me(self):
         slide    = self.prs.slides.add_slide(self._blank)
         date_str = self.data.get("report_date", "")
         _slide_title(slide, "LIQUIDEZ – MOEDA ESTRANGEIRA", date_str)
 
-        days   = self.data.get("liquidez_mn_days", ["D-4", "D-3", "D-2", "D-1", "D"])
-        row_h  = Inches(0.28)
-        lbl_w  = Inches(3.4)
-        col_w  = Inches(1.72)
-        left0  = Inches(0.3)
+        days  = self.data.get("liquidez_mn_days", ["D-4", "D-3", "D-2", "D-1", "D"])
+        row_h = Inches(0.25)
+        fs    = 7
+
+        # ── LEFT side (W=7.784) — 3 tables stacked ───────────────────────────
+        left0  = Inches(0.396)
+        tbl_w  = Inches(7.784)
+        lbl_w  = Inches(2.3)
+        col_w  = (tbl_w - lbl_w) / 5
         lefts  = [left0] + [left0 + lbl_w + i * col_w for i in range(5)]
         widths = [lbl_w] + [col_w] * 5
-        top    = Inches(0.78)
 
-        # Liquidez ME table
-        _section_bar(slide, "Liquidez ME  (Em Milhões USD)", left0, top, SLIDE_W - Inches(0.5))
-        top += Inches(0.28)
-        _table_header_row(slide, [""] + days, lefts, top, row_h, widths)
+        # Liquidez ME — T=0.677 H≈1.0 (reference Objeto 5)
+        top = Inches(0.677)
+        _section_bar(slide, "Liquidez ME  (M USD)", left0, top, tbl_w)
+        top += Inches(0.25)
+        _table_header_row(slide, [""] + days, lefts, top, row_h, widths, font_size=fs)
 
         lme_rows = self.data.get("liquidez_me_rows", [
             {"label": "SALDO D.O Estrangeiros", "values": ["—"] * 5},
@@ -923,19 +978,19 @@ class BDAReportGenerator:
             is_total = "LIQUIDEZ" in row["label"].upper()
             bg = ORANGE_LIGHT if i % 2 == 0 else WHITE
             _table_data_row(slide, [row["label"]] + row["values"],
-                            lefts, top, row_h, widths,
+                            lefts, top, row_h, widths, font_size=fs,
                             highlight=is_total, bg=bg)
 
-        # Transações ME
-        top += row_h + Inches(0.12)
-        _section_bar(slide, "Transações ME", left0, top, SLIDE_W - Inches(0.5))
+        # Transações ME — T=1.838 H≈0.892 (reference Objeto 13)
+        top = Inches(1.838)
+        _section_bar(slide, "Transações ME", left0, top, tbl_w)
         tx_me_heads = ["Tipo", "Moeda", "Contraparte", "Taxa", "Montante", "Maturidade", "Juros"]
-        n = len(tx_me_heads)
-        tx_me_w = (SLIDE_W - Inches(0.5)) / n
-        tx_me_lefts = [left0 + i * tx_me_w for i in range(n)]
-        tx_me_widths = [tx_me_w] * n
-        top += Inches(0.28)
-        _table_header_row(slide, tx_me_heads, tx_me_lefts, top, row_h, tx_me_widths, font_size=7)
+        n_tx  = len(tx_me_heads)
+        tx_w  = tbl_w / n_tx
+        tx_lefts  = [left0 + i * tx_w for i in range(n_tx)]
+        tx_widths = [tx_w] * n_tx
+        top += Inches(0.25)
+        _table_header_row(slide, tx_me_heads, tx_lefts, top, row_h, tx_widths, font_size=fs)
 
         tx_me = self.data.get("transacoes_me_raw", [])
         for i, row in enumerate(tx_me):
@@ -944,21 +999,21 @@ class BDAReportGenerator:
             _table_data_row(slide,
                             [row.get(k, "—") for k in
                              ("tipo", "moeda", "contraparte", "taxa", "montante", "maturidade", "juros")],
-                            tx_me_lefts, top, row_h, tx_me_widths, font_size=7, bg=bg)
+                            tx_lefts, top, row_h, tx_widths, font_size=fs, bg=bg)
         if not tx_me:
             top += row_h
-            _table_data_row(slide, ["—"] * n, tx_me_lefts, top, row_h, tx_me_widths, font_size=7)
+            _table_data_row(slide, ["—"] * n_tx, tx_lefts, top, row_h, tx_widths, font_size=fs)
 
-        # Operações Vivas ME
-        top += row_h + Inches(0.12)
-        _section_bar(slide, "Operações Vivas ME", left0, top, SLIDE_W - Inches(0.5))
+        # Operações Vivas ME — T=2.819 H≈2.45 (reference Objeto 19)
+        top = Inches(2.819)
+        _section_bar(slide, "Operações Vivas ME", left0, top, tbl_w)
         op_me_heads = ["Contraparte", "Montante", "Taxa", "Residual (Dias)", "Vencimento", "Juro Diário"]
-        n2 = len(op_me_heads)
-        op_me_w = (SLIDE_W - Inches(0.5)) / n2
-        op_me_lefts = [left0 + i * op_me_w for i in range(n2)]
-        op_me_widths = [op_me_w] * n2
-        top += Inches(0.28)
-        _table_header_row(slide, op_me_heads, op_me_lefts, top, row_h, op_me_widths, font_size=7)
+        n_op = len(op_me_heads)
+        op_w = tbl_w / n_op
+        op_lefts  = [left0 + i * op_w for i in range(n_op)]
+        op_widths = [op_w] * n_op
+        top += Inches(0.25)
+        _table_header_row(slide, op_me_heads, op_lefts, top, row_h, op_widths, font_size=fs)
 
         ops_me = self.data.get("operacoes_vivas_me", [])
         for i, op in enumerate(ops_me):
@@ -967,46 +1022,50 @@ class BDAReportGenerator:
             _table_data_row(slide,
                             [op.get(k, "—") for k in
                              ("contraparte", "montante", "taxa", "residual", "vencimento", "juro_diario")],
-                            op_me_lefts, top, row_h, op_me_widths, font_size=7, bg=bg)
+                            op_lefts, top, row_h, op_widths, font_size=fs, bg=bg)
         if not ops_me:
             top += row_h
-            _table_data_row(slide, ["—"] * n2, op_me_lefts, top, row_h, op_me_widths, font_size=7)
+            _table_data_row(slide, ["—"] * n_op, op_lefts, top, row_h, op_widths, font_size=fs)
 
-        # Fluxos ME
-        top += row_h + Inches(0.12)
-        _section_bar(slide, "Fluxos de Caixa ME", left0, top, SLIDE_W - Inches(0.5))
-        top += Inches(0.28)
-        _table_header_row(slide, [""] + days, lefts, top, row_h, widths)
+        # ── RIGHT side — Fluxos de Caixa ME (reference Objeto 21 at L=8.23 T=3.078)
+        R_left  = Inches(8.23)
+        R_width = Inches(5.021)
+        fx_lbl_w = Inches(1.8)
+        fx_col_w = (R_width - fx_lbl_w) / 5
+        fx_lefts  = [R_left] + [R_left + fx_lbl_w + i * fx_col_w for i in range(5)]
+        fx_widths = [fx_lbl_w] + [fx_col_w] * 5
+
+        r_top = Inches(3.078)
+        _section_bar(slide, "Fluxos de Caixa ME", R_left, r_top, R_width)
+        r_top += Inches(0.25)
+        _table_header_row(slide, [""] + days, fx_lefts, r_top, row_h, fx_widths, font_size=fs)
+
         fluxos_me = self.data.get("fluxos_me_rows", [
-            {"label": "Fluxos de entradas (Cash in flow)", "values": ["—"] * 5},
-            {"label": "Outros recebimentos",               "values": ["—"] * 5},
-            {"label": "Reembolsos de DP + Juros",          "values": ["—"] * 5},
-            {"label": "Fluxos de Saídas (Cash out flow)",  "values": ["—"] * 5},
-            {"label": "Aplicação em DP ME",                "values": ["—"] * 5},
-            {"label": "GAP de Liquidez",                   "values": ["—"] * 5},
+            {"label": "Cash in flow",      "values": ["—"] * 5},
+            {"label": "Outros receb.",     "values": ["—"] * 5},
+            {"label": "Remb. DP + Juros",  "values": ["—"] * 5},
+            {"label": "Cash out flow",     "values": ["—"] * 5},
+            {"label": "Aplicação DP ME",   "values": ["—"] * 5},
+            {"label": "GAP de Liquidez",   "values": ["—"] * 5},
         ])
         for i, row in enumerate(fluxos_me):
-            top += row_h
+            r_top += row_h
             is_total = "GAP" in row["label"].upper() or "TOTAL" in row["label"].upper()
             bg = ORANGE_LIGHT if i % 2 == 0 else WHITE
             _table_data_row(slide, [row["label"]] + row["values"],
-                            lefts, top, row_h, widths,
+                            fx_lefts, r_top, row_h, fx_widths, font_size=fs,
                             highlight=is_total, bg=bg)
 
-        # ── Summary ovals (Liquidez Total ME + Juros Diário ME) — exact original positions
-        lme_rows = self.data.get("liquidez_me_rows", [])
-        total_me = lme_rows[-1]["values"][-1] if lme_rows else "—"
+        # ── Summary ovals — exact reference: T=5.260 (Agrupar 16 at L=2.025)
+        lme_data = self.data.get("liquidez_me_rows", [])
+        total_me = lme_data[-1]["values"][-1] if lme_data else "—"
         juros_me = self.data.get("juros_diario_me", "—")
-        # Oval ME total: L=2.817 T=5.260 W=1.176 H=0.941
         _summary_oval(slide, "Liquidez Total", total_me,
                       Inches(2.817), Inches(5.260), Inches(1.176), Inches(0.941))
-        # Oval ME juros: L=4.350 T=5.260 W=1.175 H=0.941
         _summary_oval(slide, "Juros Diário", juros_me,
                       Inches(4.350), Inches(5.260), Inches(1.175), Inches(0.941))
-
-        # Icon — exact original position (5.88",5.61") 0.61x0.71in
-        _place_img(slide, IMG_ICON_CALCULATOR, Inches(5.88), Inches(5.61),
-                   Inches(0.61), Inches(0.71))
+        _place_img(slide, IMG_ICON_CALCULATOR, Inches(5.884), Inches(5.607),
+                   Inches(0.615), Inches(0.712))
 
         _footer(slide)
 
@@ -1019,14 +1078,15 @@ class BDAReportGenerator:
 
         cambial  = self.data.get("cambial", {})
         row_h    = Inches(0.28)
-        left0    = Inches(0.3)
-        table_w  = Inches(6.2)
+        # Reference: left tables W=6.112 (Objeto 4 at L=0.396 W=6.112)
+        left0    = Inches(0.396)
+        table_w  = Inches(6.112)
 
-        # ── Cambiais rates table (3 date columns + %) ─────────────────────────
-        top = Inches(0.78)
+        # ── Cambiais rates table — reference T=0.705 H=0.899
+        top = Inches(0.705)
         _section_bar(slide, "Cambiais", left0, top, table_w)
-        c_heads  = ["Par", "Anterior (D-1)", "Anterior", "Actual (D)", "(%)"]
-        c_w      = [Inches(1.4), Inches(1.2), Inches(1.2), Inches(1.2), Inches(1.2)]
+        c_heads  = ["Par", "Anterior (D-2)", "Anterior (D-1)", "Actual (D)", "(%)"]
+        c_w      = [Inches(1.4), Inches(1.178), Inches(1.178), Inches(1.178), Inches(1.178)]
         c_lefts  = [left0]
         for w in c_w[:-1]:
             c_lefts.append(c_lefts[-1] + w)
@@ -1048,11 +1108,11 @@ class BDAReportGenerator:
                 c_lefts, top, row_h, c_w, bg=bg,
             )
 
-        # ── Transações BDA table ──────────────────────────────────────────────
-        top += row_h + Inches(0.15)
+        # ── Transações BDA table — reference T=1.865 H=0.7
+        top = Inches(1.865)
         _section_bar(slide, "Transações BDA", left0, top, table_w)
         tb_heads  = ["C/V", "Par de moeda", "Montante Debt", "Câmbio", "P/L AKZ"]
-        tb_w      = [Inches(0.7), Inches(1.5), Inches(1.5), Inches(1.3), Inches(1.2)]
+        tb_w      = [Inches(0.7), Inches(1.412), Inches(1.5), Inches(1.3), Inches(1.2)]
         tb_lefts  = [left0]
         for w in tb_w[:-1]:
             tb_lefts.append(tb_lefts[-1] + w)
@@ -1072,11 +1132,11 @@ class BDAReportGenerator:
             top += row_h
             _table_data_row(slide, ["—"] * 5, tb_lefts, top, row_h, tb_w, font_size=7)
 
-        # ── Transações do Mercado (T+0, T+1, T+2) ────────────────────────────
-        top += row_h + Inches(0.15)
-        _section_bar(slide, "Transações do Mercado", left0, top, table_w)
+        # ── Transações do Mercado — reference Objeto 19 at T=3.047 W=5.417
+        top = Inches(3.047)
+        _section_bar(slide, "Transações do Mercado", left0, top, Inches(5.417))
         tm_heads = ["Liquidação", "Montante USD", "Mínimo", "Máximo"]
-        tm_w = [Inches(1.2), Inches(1.8), Inches(1.6), Inches(1.6)]
+        tm_w = [Inches(1.2), Inches(1.539), Inches(1.339), Inches(1.339)]
         tm_lefts = [left0]
         for w in tm_w[:-1]:
             tm_lefts.append(tm_lefts[-1] + w)
@@ -1098,19 +1158,21 @@ class BDAReportGenerator:
                 tm_lefts, top, row_h, tm_w, bg=bg,
             )
 
-        # ── Right panel — KPI summary ovals — exact original positions
-        # Oval USD: L=8.502 T=1.422 W=1.241 H=0.976
+        # ── Right panel — KPI ovals at original positions + charts below
+        # Oval USD: reference L=8.502 T=1.422 W=1.241 H=0.976
         _summary_oval(slide, "Transações (USD)", cambial.get("vol_total_usd", "—"),
                       Inches(8.502), Inches(1.422), Inches(1.241), Inches(0.976))
-        # Oval Kz: L=10.308 T=1.454 W=1.241 H=0.954
+        # Oval Kz: reference L=10.308 T=1.454 W=1.241 H=0.954
         _summary_oval(slide, "Posição Cambial (Kz)", cambial.get("posicao_cambial", "—"),
                       Inches(10.308), Inches(1.454), Inches(1.241), Inches(0.954))
 
-        # Icons — exact original positions
-        _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.55), Inches(2.45),
-                   Inches(0.54), Inches(0.54))
-        _place_img(slide, IMG_ICON_FX_EXCHANGE,  Inches(12.09), Inches(0.67),
-                   Inches(0.47), Inches(0.47))
+        # Charts: Posição Cambial bar (L=6.212 T=3.26) + Taxa de Câmbio line (bottom)
+        self._add_cambial_charts(slide)
+
+        _place_img(slide, IMG_ICON_FX_EXCHANGE, Inches(12.089), Inches(0.667),
+                   Inches(0.473), Inches(0.467))
+        _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.554), Inches(2.453),
+                   Inches(0.543), Inches(0.536))
 
         _footer(slide)
 
@@ -1122,14 +1184,16 @@ class BDAReportGenerator:
         _slide_title(slide, "MERCADO DE CAPITAIS", date_str)
 
         row_h  = Inches(0.28)
-        left0  = Inches(0.3)
+        # Reference: segment table L=0.396 T=0.721 W=7.494; stocks L=0.396 T=4.622 W=8.825
+        left0  = Inches(0.396)
 
-        # ── Segmentado por Produtos ───────────────────────────────────────────
-        top = Inches(0.78)
-        _section_bar(slide, "Segmentado Por Produtos", left0, top, SLIDE_W - Inches(0.5))
+        # ── Segmentado por Produtos — W=7.494 matching reference
+        top = Inches(0.721)
+        seg_tbl_w = Inches(7.494)
+        _section_bar(slide, "Segmentado Por Produtos", left0, top, seg_tbl_w)
 
         sp_heads  = ["Segmento", "Anterior", "Actual", "(%)"]
-        sp_w      = [Inches(4.5), Inches(2.5), Inches(3.0), Inches(2.83)]
+        sp_w      = [Inches(3.0), Inches(1.498), Inches(1.498), Inches(1.498)]
         sp_lefts  = [left0]
         for w in sp_w[:-1]:
             sp_lefts.append(sp_lefts[-1] + w)
@@ -1228,45 +1292,57 @@ class BDAReportGenerator:
             top += row_h
             _table_data_row(slide, ["—"] * n_tx, tx_lefts, top, row_h, tx_widths, font_size=7)
 
-        # KPI ovals — exact original positions
-        # Oval transações: L=4.930 T=2.319 W=1.256 H=0.881
-        tx_kpi_val  = self.data.get("bodiva_transacoes_valor", "0,00 mM Kz")
-        jd_kpi_val  = self.data.get("bodiva_juros_diario",    "—")
-        _summary_oval(slide, "Kz  Transações",  tx_kpi_val,
-                      Inches(4.930), Inches(2.319), Inches(1.256), Inches(0.881))
-        # Oval juros: L=6.187 T=2.319 W=1.256 H=0.881
-        _summary_oval(slide, "Kz  Juros Diário", jd_kpi_val,
-                      Inches(6.187), Inches(2.319), Inches(1.256), Inches(0.881))
-
-        # ── Carteira de Títulos ───────────────────────────────────────────────
-        top = Inches(3.1)
-        _section_bar(slide, "Carteira De Títulos", left0, top, SLIDE_W - Inches(0.5))
-
-        ct_heads  = ["Carteira", "Cód. Neg.", "Qtd D-1", "Qtd D", "Val. Nominal",
-                     "Taxa", "Montante D", "Juros Anual", "Juros Diário D"]
-        n_ct = len(ct_heads)
-        ct_w = (SLIDE_W - Inches(0.5)) / n_ct
-        ct_lefts  = [left0 + i * ct_w for i in range(n_ct)]
-        ct_widths = [ct_w] * n_ct
-        top += Inches(0.28)
-        _table_header_row(slide, ct_heads, ct_lefts, top, row_h, ct_widths, font_size=6)
-
+        # ── Carteira de Títulos — split into Custo Amortizado / Justo Valor ──
+        top = Inches(1.85)
         carteira = self.data.get("carteira_titulos", [])
-        for i, row in enumerate(carteira):
-            top += row_h
-            is_total = row.get("cod", "").upper() == "TOTAL" or row.get("carteira", "").upper() == "TOTAL"
-            bg = ORANGE_LIGHT if i % 2 == 0 else WHITE
-            _table_data_row(
-                slide,
-                [row.get(k, "—") for k in
-                 ("carteira", "cod", "qty_d1", "qty_d", "nominal",
-                  "taxa", "montante", "juros_anual", "juro_diario")],
-                ct_lefts, top, row_h, ct_widths, font_size=6,
-                highlight=is_total, bg=bg,
-            )
-        if not carteira:
-            top += row_h
-            _table_data_row(slide, ["—"] * n_ct, ct_lefts, top, row_h, ct_widths, font_size=6)
+
+        custo_rows = [r for r in carteira if "CUSTO" in r.get("carteira", "").upper()]
+        justo_rows = [r for r in carteira if "JUSTO" in r.get("carteira", "").upper()
+                      or "VALOR" in r.get("carteira", "").upper()]
+        # If no categorisation present, split evenly for display
+        if not custo_rows and not justo_rows:
+            mid = max(1, len(carteira) // 2)
+            custo_rows = carteira[:mid]
+            justo_rows = carteira[mid:]
+
+        ct_heads  = ["Cód.", "Qtd D-1", "Qtd D", "Nominal", "Taxa", "Montante", "J. Anual", "J. Diário"]
+        n_ct      = len(ct_heads)
+        ct_w_each = (SLIDE_W - Inches(0.5)) / n_ct
+        ct_lefts  = [left0 + i * ct_w_each for i in range(n_ct)]
+        ct_widths = [ct_w_each] * n_ct
+
+        def _render_carteira_section(label, rows, start_top):
+            _section_bar(slide, label, left0, start_top, SLIDE_W - Inches(0.5))
+            t = start_top + Inches(0.24)
+            _table_header_row(slide, ct_heads, ct_lefts, t, row_h, ct_widths, font_size=6)
+            if rows:
+                for j, row in enumerate(rows):
+                    t += row_h
+                    is_total = row.get("cod", "").upper() == "TOTAL"
+                    bg = ORANGE_LIGHT if j % 2 == 0 else WHITE
+                    _table_data_row(
+                        slide,
+                        [row.get(k, "—") for k in
+                         ("cod", "qty_d1", "qty_d", "nominal", "taxa", "montante", "juros_anual", "juro_diario")],
+                        ct_lefts, t, row_h, ct_widths, font_size=6,
+                        highlight=is_total, bg=bg,
+                    )
+            else:
+                t += row_h
+                _table_data_row(slide, ["—"] * n_ct, ct_lefts, t, row_h, ct_widths, font_size=6)
+            return t + row_h
+
+        top = _render_carteira_section("Custo Amortizado", custo_rows, top)
+        top += Inches(0.08)
+        _render_carteira_section("Justo Valor", justo_rows, top)
+
+        # KPI ovals — bottom of slide
+        tx_kpi_val = self.data.get("bodiva_transacoes_valor", "0,00 mM Kz")
+        jd_kpi_val = self.data.get("bodiva_juros_diario", "—")
+        _summary_oval(slide, "Kz  Transações",   tx_kpi_val,
+                      Inches(4.50), Inches(5.85), Inches(1.30), Inches(0.88))
+        _summary_oval(slide, "Kz  Juros Diário", jd_kpi_val,
+                      Inches(6.00), Inches(5.85), Inches(1.30), Inches(0.88))
 
         _footer(slide)
 
@@ -1454,17 +1530,16 @@ class BDAReportGenerator:
                           Inches(7.22), Inches(3.82), Inches(5.42), Inches(1.37),
                           font_size=8, color=BLACK, word_wrap=True)
 
-        # "Nota" tag — exact original: L=12.683 T=3.941 W≈0.598 H≈0.315
-        _add_rect(slide, Inches(12.683), Inches(3.941), Inches(0.598), Inches(0.315),
-                  ORANGE_PRIMARY)
-        _add_text_box(slide, "Nota", Inches(12.687), Inches(3.945),
-                      Inches(0.590), Inches(0.307),
-                      font_size=8, bold=True, italic=True,
-                      color=WHITE, align=PP_ALIGN.CENTER)
+        # "Nota" — dedicated shaded box at bottom of slide
+        nota_text = market.get("commodities_nota", market.get("minerais_commentary", ""))
+        nota_top = Inches(5.60)
+        nota_h   = Inches(0.85)
+        _add_rect(slide, Inches(0.25), nota_top, SLIDE_W - Inches(0.5), nota_h,
+                  ORANGE_LIGHT, ORANGE_PRIMARY, 0.8)
+        _add_text_box(slide, f"Nota:  {nota_text}" if nota_text else "Nota:",
+                      Inches(0.35), nota_top + Pt(4), SLIDE_W - Inches(0.7), nota_h - Pt(8),
+                      font_size=7, color=BLACK, word_wrap=True)
 
-        # Icons — exact original positions
-        _place_img(slide, IMG_ICON_GLOBE,        Inches(0.10), Inches(1.32),
-                   Inches(0.63), Inches(0.62))
         _place_img(slide, IMG_ICON_REPORT_MONEY, Inches(6.28), Inches(0.90),
                    Inches(0.39), Inches(0.39))
 
