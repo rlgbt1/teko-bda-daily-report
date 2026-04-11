@@ -123,6 +123,12 @@ def _scrape_bna_all() -> tuple[dict, ScrapePacket]:
     return _scrape_step("BNA", "bna", _fn, url=BNA_URL)
 
 
+def _bna_df_or_default(rows: list[dict], columns: list[str], defaults: list[list[str]]) -> pd.DataFrame:
+    if rows:
+        return pd.DataFrame(rows)
+    return pd.DataFrame(dict(zip(columns, values)) for values in defaults)
+
+
 def _scrape_bodiva() -> tuple[dict, ScrapePacket]:
     from src.scrapers.bodiva_scraper import BODIVAScraper
     from src.config import URLs
@@ -221,12 +227,23 @@ def scrape_all_external_data_with_qa(run_gemini_qa: bool = True) -> dict:
     # ── BNA ───────────────────────────────────────────────────────────────────
     print("Scraping BNA...")
     bna_raw, packets["bna"] = _scrape_bna_all()
-
-    # Extract typed DataFrames from BNA packet
-    from src.scrapers.bna_scraper import get_luibor_rates, get_exchange_rates, get_bna_rates
-    luibor   = get_luibor_rates()
-    fx_rates = get_exchange_rates()
-    bna_rates = get_bna_rates()
+    bna_data = bna_raw if isinstance(bna_raw, dict) else {}
+    luibor_rows = bna_data.get("luibor", [])
+    fx_rows = bna_data.get("fx", [])
+    bna_rates = {
+        "taxa_bna": bna_data.get("taxa_bna", "N/A"),
+        "inflacao": bna_data.get("inflacao", "N/A"),
+    }
+    luibor = _bna_df_or_default(
+        luibor_rows,
+        ["Maturidade", "Taxa (%)"],
+        [["Overnight", "N/A"], ["1 Mês", "N/A"], ["3 Meses", "N/A"], ["6 Meses", "N/A"], ["9 Meses", "N/A"], ["12 Meses", "N/A"]],
+    )
+    fx_rates = _bna_df_or_default(
+        fx_rows,
+        ["Moeda", "Taxa (AOA)"],
+        [["USD", "N/A"], ["EUR", "N/A"], ["ZAR", "N/A"]],
+    )
 
     # ── BODIVA ────────────────────────────────────────────────────────────────
     print("Scraping BODIVA...")

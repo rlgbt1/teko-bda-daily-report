@@ -37,8 +37,16 @@ with col_title:
 
 st.divider()
 
-# ── Session state init ─────────────────────────────────────────────────────────
-for key in ("internal_data", "external_data", "report_path", "pdf_path"):
+# ── Session state init ────────────────────────────────────────────────────────
+for key in (
+    "internal_data",
+    "external_data",
+    "external_qa",
+    "external_safe_to_proceed",
+    "report_path",
+    "pdf_path",
+    "ai_summaries",
+):
     if key not in st.session_state:
         st.session_state[key] = {} if key not in ("report_path", "pdf_path") else None
 
@@ -604,12 +612,26 @@ with tab1:
 with tab2:
     st.header("Pré-visualização de Dados")
 
+    run_llm_qa = st.checkbox(
+        "Executar QA com LLM",
+        value=False,
+        help="Usa a camada de auditoria adicional além das validações determinísticas.",
+    )
+
     if st.button("🔄 Actualizar Dados Externos (scrape)"):
         with st.spinner("A recolher dados de mercado… (30-60 s)"):
             try:
-                from src.scrapers.market_aggregator import scrape_all_external_data
-                st.session_state.external_data = scrape_all_external_data()
-                st.success("✅ Dados externos carregados!")
+                from src.scrapers.market_aggregator import scrape_all_external_data_with_qa
+
+                payload = scrape_all_external_data_with_qa(run_gemini_qa=run_llm_qa)
+                st.session_state.external_data = payload.get("data", {})
+                st.session_state.external_qa = payload.get("qa", {})
+                st.session_state.external_safe_to_proceed = payload.get("safe_to_proceed", False)
+
+                if st.session_state.external_safe_to_proceed:
+                    st.success("✅ Dados externos carregados e aprovados!")
+                else:
+                    st.warning("⚠️ Dados externos carregados, mas o QA sinalizou atenção.")
             except Exception as e:
                 st.error(f"Erro ao recolher dados: {e}")
                 st.code(traceback.format_exc())
@@ -622,6 +644,8 @@ with tab2:
             ("crypto",      "₿ Criptomoedas"),
             ("luibor",      "🏦 Taxas LUIBOR (BNA)"),
             ("fx_rates",    "💱 Taxas de Câmbio (BNA)"),
+            ("bna_rates",   "📈 Taxas e Inflação (BNA)"),
+            ("bodiva",      "🏛️ BODIVA"),
         ]
         for key, label in maps:
             item = ed.get(key)
@@ -631,6 +655,25 @@ with tab2:
                     st.dataframe(item, use_container_width=True)
                 else:
                     st.json(item)
+
+    qa = st.session_state.external_qa
+    if qa:
+        st.subheader("🔎 QA do Scrape")
+        st.caption(
+            f"Safe to proceed: {'sim' if st.session_state.external_safe_to_proceed else 'não'}"
+        )
+        qa_rows = []
+        for step, result in qa.items():
+            if hasattr(result, "model_dump"):
+                row = result.model_dump()
+            elif isinstance(result, dict):
+                row = result
+            else:
+                row = {"step": step, "status": str(result)}
+            row["step"] = step
+            qa_rows.append(row)
+        if qa_rows:
+            st.dataframe(pd.DataFrame(qa_rows), use_container_width=True)
 
     id_ = st.session_state.internal_data
     if id_:

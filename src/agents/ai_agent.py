@@ -1,5 +1,5 @@
 """
-agents/ai_agent.py — High-level AI commentary agent backed by Gemini.
+agents/ai_agent.py — High-level AI commentary agent.
 
 Wraps src/llm/llm_client.py with domain-specific prompt building so the
 Streamlit app and report builder can call simple, named methods.
@@ -12,10 +12,10 @@ WorkflowQAAgent   — checker: see src/qa/qa_agent.py
 Content QA flow
 ---------------
 Each write_and_verify_* method:
-  1. generates commentary via Gemini
+  1. generates commentary via the active LLM provider
   2. runs content QA (WorkflowQAAgent.review_commentary)
   3. returns the commentary only if it is safe_to_include
-  4. returns a safe Portuguese fallback if QA fails or Gemini is unavailable
+  4. returns a safe Portuguese fallback if QA fails or the provider is unavailable
 
 Usage:
     from src.agents.ai_agent import DailyReportAgent
@@ -35,7 +35,21 @@ logger = get_logger(__name__)
 _SYSTEM = (
     "Você é um analista financeiro sénior de um banco angolano (BDA). "
     "Escreva resumos claros, factuais e concisos em português europeu. "
-    "Use APENAS os dados fornecidos — nunca invente valores ou factos."
+    "Use APENAS os dados fornecidos — nunca invente valores ou factos. "
+    "O texto deve soar como um resumo executivo de relatório bancário, "
+    "sem floreados, sem listas e sem títulos desnecessários."
+)
+
+_STYLE_TEMPLATE = (
+    "Estilo desejado:\n"
+    "- escreva em 2 a 4 parágrafos curtos\n"
+    "- mantenha tom executivo, neutro e objectivo\n"
+    "- destaque os movimentos mais importantes com percentagens dentro da frase\n"
+    "- não use bullets, numeração, tabelas ou markdown\n"
+    "- não repita os mesmos dados duas vezes\n"
+    "- use expressões como 'subiu', 'caiu', 'avançou', 'recuou', 'manteve-se estável'\n"
+    "- se houver vários blocos geográficos, organize por EUA, Ásia, Europa, América Latina\n"
+    "- se houver commodities/minerais, separe o comentário por grupos afins"
 )
 
 
@@ -105,9 +119,13 @@ class DailyReportAgent:
         data_str = markets_df.to_string(index=False)
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base nos dados abaixo, escreva um resumo de 3-4 frases sobre os "
-            "principais movimentos dos mercados de capitais globais. "
-            "Destaque os movimentos mais significativos (maiores altas e baixas).\n\n"
+            "Com base nos dados abaixo, escreva o comentário do slide de "
+            "INFORMAÇÃO DE MERCADOS (1/2).\n"
+            "Faça um resumo executivo curto dos mercados globais, tal como no "
+            "template de referência: EUA, Ásia, Europa e América Latina devem "
+            "ser tratados em blocos separados quando os dados existirem.\n"
+            "Destaque os maiores ganhos e perdas com percentagens dentro do texto.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             f"{data_str}\n\nResumo:"
         )
         return self._generate_and_verify("cm_commentary", prompt, data_str, fallback)
@@ -125,9 +143,14 @@ class DailyReportAgent:
         data_str = commodities_df.to_string(index=False)
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base nos dados abaixo, escreva 2-3 frases sobre os principais "
-            "movimentos das commodities e minerais. Mencione petróleo, ouro e cobre "
-            "se presentes.\n\n"
+            "Com base nos dados abaixo, escreva o comentário do slide de "
+            "INFORMAÇÃO DE MERCADOS (2/2).\n"
+            "O texto deve cobrir commodities e minerais no mesmo estilo do "
+            "template de referência: primeiro um resumo curto dos minerais e "
+            "metais preciosos, depois um resumo curto das commodities agrícolas e "
+            "energéticas.\n"
+            "Use frases curtas, factuais e orientadas ao movimento percentual.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             f"{data_str}\n\nResumo:"
         )
         return self._generate_and_verify("commodities_commentary", prompt, data_str, fallback)
@@ -145,8 +168,12 @@ class DailyReportAgent:
         data_str = crypto_df.to_string(index=False)
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base nos dados abaixo, escreva 2 frases sobre o mercado de "
-            "criptomoedas, mencionando Bitcoin, Ethereum e tendência geral.\n\n"
+            "Com base nos dados abaixo, escreva um comentário curto de cripto "
+            "para o bloco de INFORMAÇÃO DE MERCADOS (1/2). "
+            "O texto deve ser um parágrafo executivo com 2 a 3 frases, "
+            "mencionando Bitcoin e outras moedas relevantes quando existirem. "
+            "Se os dados mostrarem estabilidade em stablecoins, diga isso de forma breve.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             f"{data_str}\n\nResumo:"
         )
         return self._generate_and_verify("crypto_commentary", prompt, data_str, fallback)
@@ -159,8 +186,9 @@ class DailyReportAgent:
         data_str = "\n".join(f"{k}: {v}" for k, v in fx_data.items())
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base nos dados cambiais abaixo, escreva 1-2 frases sobre a "
-            "evolução do kwanza face ao dólar e euro.\n\n"
+            "Com base nos dados cambiais abaixo, escreva 1 a 2 frases sobre a "
+            "evolução do kwanza face ao dólar e euro, em tom executivo e objectivo.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             f"{data_str}\n\nResumo:"
         )
         return generate_commentary(prompt, fallback="")
@@ -181,8 +209,9 @@ class DailyReportAgent:
             return ""
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base na posição de liquidez abaixo, escreva 1-2 frases de "
-            "enquadramento executivo.\n\n"
+            "Com base na posição de liquidez abaixo, escreva 1 a 2 frases de "
+            "enquadramento executivo para um slide bancário.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             + "\n".join(parts)
             + "\n\nResumo:"
         )
@@ -201,8 +230,12 @@ class DailyReportAgent:
         data_str = minerals_df.to_string(index=False)
         prompt = (
             f"{_SYSTEM}\n\n"
-            "Com base nos dados abaixo, escreva 2 frases sobre os principais "
-            "movimentos dos minerais e metais preciosos.\n\n"
+            "Com base nos dados abaixo, escreva o comentário curto de minerais "
+            "para o slide de INFORMAÇÃO DE MERCADOS (2/2). "
+            "Use um tom semelhante ao template de referência: destaque o ouro, "
+            "ferro, cobre e manganês quando presentes, e diga o que subiu, caiu "
+            "ou permaneceu estável.\n\n"
+            f"{_STYLE_TEMPLATE}\n\n"
             f"{data_str}\n\nResumo:"
         )
         return self._generate_and_verify("minerais_commentary", prompt, data_str, fallback)

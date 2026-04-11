@@ -4,6 +4,8 @@ from typing import Optional
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 URL = "https://www.bna.ao/"
+GOTO_TIMEOUT_MS = 15_000
+LOAD_STATE_TIMEOUT_MS = 5_000
 
 _cached_data = None
 
@@ -194,47 +196,71 @@ def sort_luibor_rows(rows: list) -> list:
 
 
 def scrape_bna() -> dict:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1440, "height": 2200})
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 2200})
 
-        page.goto(URL, timeout=60000, wait_until="domcontentloaded")
-        page.wait_for_timeout(5000)
+            # BNA can be slow or intermittently unresponsive. Use a quicker
+            # commit-based navigation first so we can recover fast and keep the
+            # report workflow moving if the page takes too long to finish.
+            try:
+                page.goto(URL, timeout=GOTO_TIMEOUT_MS, wait_until="commit")
+            except PlaywrightTimeoutError:
+                try:
+                    page.goto(URL, timeout=GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
+                except PlaywrightTimeoutError:
+                    # Best-effort fallback: keep going if the browser has any
+                    # partial content already. This is still better than a hard fail.
+                    pass
 
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except PlaywrightTimeoutError:
-            pass
+            page.wait_for_timeout(4000)
 
-        full_text = clean_text(page.inner_text("body"))
+            try:
+                page.wait_for_load_state("networkidle", timeout=LOAD_STATE_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                pass
 
-        taxa_bna = extract_section_percent(full_text, "Taxa BNA", "Taxa de Inflação")
-        inflacao = extract_section_percent(full_text, "Taxa de Inflação", "Taxa de Câmbio")
-        fx_rows = parse_fx_from_text(full_text)
+            full_text = clean_text(page.inner_text("body"))
 
-        luibor_section = target_luibor_section(page)
+            taxa_bna = extract_section_percent(full_text, "Taxa BNA", "Taxa de Inflação")
+            inflacao = extract_section_percent(full_text, "Taxa de Inflação", "Taxa de Câmbio")
+            fx_rows = parse_fx_from_text(full_text)
 
-        all_luibor_rows = extract_luibor_rows(luibor_section)
+            try:
+                luibor_section = target_luibor_section(page)
+                all_luibor_rows = extract_luibor_rows(luibor_section)
 
-        clicked = click_luibor_next(luibor_section, page)
-        if clicked:
-            page2_rows = extract_luibor_rows(luibor_section)
+                clicked = click_luibor_next(luibor_section, page)
+                if clicked:
+                    page2_rows = extract_luibor_rows(luibor_section)
 
-            existing = {(r["Maturidade"], r["Taxa (%)"]) for r in all_luibor_rows}
-            for row in page2_rows:
-                key = (row["Maturidade"], row["Taxa (%)"])
-                if key not in existing:
-                    existing.add(key)
-                    all_luibor_rows.append(row)
+                    existing = {(r["Maturidade"], r["Taxa (%)"]) for r in all_luibor_rows}
+                    for row in page2_rows:
+                        key = (row["Maturidade"], row["Taxa (%)"])
+                        if key not in existing:
+                            existing.add(key)
+                            all_luibor_rows.append(row)
+            except Exception:
+                all_luibor_rows = []
 
-        browser.close()
+            browser.close()
 
-    return {
-        "taxa_bna": taxa_bna,
-        "inflacao": inflacao,
-        "fx": fx_rows,
-        "luibor": sort_luibor_rows(all_luibor_rows),
-    }
+        return {
+            "taxa_bna": taxa_bna,
+            "inflacao": inflacao,
+            "fx": fx_rows,
+            "luibor": sort_luibor_rows(all_luibor_rows),
+        }
+    except Exception:
+        # Hard fallback: return safe placeholders so the rest of the report can
+        # still generate if BNA is temporarily unavailable.
+        return {
+            "taxa_bna": "N/A",
+            "inflacao": "N/A",
+            "fx": [],
+            "luibor": [],
+        }
 
 
 def scrape_once(force_refresh: bool = False) -> dict:
