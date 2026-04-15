@@ -36,6 +36,22 @@ data = {
         'LUIBOR 9M':   '20,25%',
         'LUIBOR 12M':  '20,50%',
     },
+    'luibor_d1': {
+        'LUIBOR O/N':  '19,25%',
+        'LUIBOR 1M':   '19,45%',
+        'LUIBOR 3M':   '19,75%',
+        'LUIBOR 6M':   '19,90%',
+        'LUIBOR 9M':   '20,25%',
+        'LUIBOR 12M':  '20,45%',
+    },
+    'luibor_d2': {
+        'LUIBOR O/N':  '19,25%',
+        'LUIBOR 1M':   '19,45%',
+        'LUIBOR 3M':   '19,75%',
+        'LUIBOR 6M':   '19,90%',
+        'LUIBOR 9M':   '20,25%',
+        'LUIBOR 12M':  '20,45%',
+    },
     'luibor_variation': {
         'LUIBOR O/N':  '0,00%',
         'LUIBOR 1M':   '+0,05%',
@@ -175,6 +191,12 @@ data = {
     },
 }
 
-gen  = BDAReportGenerator(data)
-path = gen.build('output/test_sample_01042026.pptx')
-print(f'Generated: {path}')
+
+def build_sample_report(output_path='output/test_sample_01042026.pptx'):
+    gen = BDAReportGenerator(data)
+    return gen.build(output_path)
+
+
+if __name__ == "__main__":
+    path = build_sample_report()
+    print(f"Generated: {path}")
