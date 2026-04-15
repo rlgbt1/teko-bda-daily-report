@@ -620,6 +620,7 @@ with tab2:
             ("crypto",      "₿ Criptomoedas"),
             ("luibor",      "🏦 Taxas LUIBOR (BNA)"),
             ("fx_rates",    "💱 Taxas de Câmbio (BNA)"),
+            ("bodiva_stocks", "📊 Acções BODIVA"),
         ]
         for key, label in maps:
             item = ed.get(key)
@@ -752,14 +753,38 @@ with tab3:
                             luibor[mat]     = rate
                             luibor_var[mat] = str(r.get("Var (%)", "—"))
 
+                    # ── BODIVA stocks ────────────────────────────────────────
+                    def _clean_stock_value(value):
+                        if value is None or pd.isna(value):
+                            return "—"
+                        return value
+
+                    bodiva_stocks: dict = {}
+                    bodiva_df = ed.get("bodiva_stocks") if ed else None
+                    if bodiva_df is not None and not bodiva_df.empty:
+                        for _, r in bodiva_df.iterrows():
+                            code = str(r.get("codigo", "")).strip()
+                            if not code:
+                                continue
+                            bodiva_stocks[code] = {
+                                "volume": _clean_stock_value(r.get("volume")),
+                                "previous": _clean_stock_value(r.get("previous")),
+                                "current": _clean_stock_value(r.get("current")),
+                                "change_pct": _clean_stock_value(r.get("change_pct")),
+                                "cap_bolsista": _clean_stock_value(r.get("cap_bolsista")),
+                            }
+
                     # ── Merge everything ──────────────────────────────────────
                     data = {
                         "report_date":  date_str,
                         "market_info":  market_info,
                         "luibor":       luibor,
                         "luibor_variation": luibor_var,
+                        "bodiva_stocks": bodiva_stocks,
                         **(id_ or {}),
                     }
+                    if not data.get("bodiva_stocks"):
+                        data["bodiva_stocks"] = bodiva_stocks
 
                     # ── Generate PPTX ─────────────────────────────────────────
                     os.makedirs("output", exist_ok=True)
