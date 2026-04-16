@@ -848,6 +848,21 @@ with tab3:
                         st.success(f"✅ PPTX gerado: `{pptx_path}`")
                         st.warning(f"PDF não gerado: {pdf_err}")
 
+                    # ── Visual Layout QA ───────────────────────────────────────
+                    try:
+                        from src.qa.visual_qa import VisualLayoutQA
+                        _template_path = "assets/template_v1.pptx"
+                        _vqa = VisualLayoutQA()
+                        if _vqa.available:
+                            with st.spinner("🔍 A verificar layout visual dos slides…"):
+                                _vqa_results = _vqa.audit(pptx_path, _template_path)
+                            st.session_state["visual_qa_results"] = _vqa_results
+                        else:
+                            st.session_state["visual_qa_results"] = []
+                    except Exception as _vqa_err:
+                        st.warning(f"Visual QA não executado: {_vqa_err}")
+                        st.session_state["visual_qa_results"] = []
+
                 except Exception as e:
                     st.error(f"Erro ao gerar relatório: {e}")
                     st.code(traceback.format_exc())
@@ -886,3 +901,44 @@ with tab3:
                     )
             else:
                 st.button("📄 PDF não disponível", disabled=True, use_container_width=True)
+
+    # ── Visual Layout QA results ──────────────────────────────────────────────
+    vqa_results = st.session_state.get("visual_qa_results", [])
+    if vqa_results:
+        st.divider()
+        st.markdown("### 🔍 Auditoria Visual de Layout")
+
+        _status_icon = {"pass": "✅", "warning": "⚠️", "fail": "❌", "error": "🔴", "skipped": "⏭️", "unknown": "❓"}
+        _fail_count    = sum(1 for r in vqa_results if r.status == "fail")
+        _warning_count = sum(1 for r in vqa_results if r.status == "warning")
+        _pass_count    = sum(1 for r in vqa_results if r.status == "pass")
+
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("✅ OK",        _pass_count)
+        _c2.metric("⚠️ Avisos",   _warning_count)
+        _c3.metric("❌ Problemas", _fail_count)
+
+        if _fail_count == 0 and _warning_count == 0:
+            st.success("Todos os slides passaram na auditoria visual — o relatório está pronto para enviar.")
+        elif _fail_count > 0:
+            st.error(f"{_fail_count} slide(s) com problemas críticos de layout. Verifique os detalhes abaixo antes de enviar.")
+        else:
+            st.warning(f"{_warning_count} slide(s) com avisos de layout. Reveja antes de enviar.")
+
+        for _r in vqa_results:
+            _icon = _status_icon.get(_r.status, "❓")
+            with st.expander(f"{_icon} Slide {_r.slide_num} — {_r.slide_label}  ({_r.status.upper()})"):
+                if _r.summary:
+                    st.markdown(f"**Resumo:** {_r.summary}")
+                if _r.issues:
+                    st.markdown("**Problemas encontrados:**")
+                    for _issue in _r.issues:
+                        st.markdown(f"- {_issue}")
+                if _r.missing_sections:
+                    st.markdown("**Secções em falta:**")
+                    for _sec in _r.missing_sections:
+                        st.markdown(f"- {_sec}")
+                _cols = st.columns(3)
+                _cols[0].markdown(f"Overlaps críticos: {'❌ Sim' if _r.critical_overlaps else '✅ Não'}")
+                _cols[1].markdown(f"Fontes OK: {'✅ Sim' if _r.font_ok else '⚠️ Não'}")
+                _cols[2].markdown(f"IA usada: {'Sim' if _r.llm_used else 'Não'}")
