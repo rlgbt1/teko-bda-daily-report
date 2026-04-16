@@ -4,9 +4,12 @@ pandas
 requests
 beautifulsoup4
 yfinance
+openai
+google-genai
 google-generativeai
 python-dotenv
 playwright
 lxml
 reportlab
 matplotlib
+pydantic>=2.0

@@ -19,6 +19,8 @@ if _project_root not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from src.llm.llm_client import get_provider_name
+
 st.set_page_config(
     page_title="Teko – BDA Daily Report",
     layout="wide",
@@ -35,8 +37,16 @@ with col_title:
 
 st.divider()
 
-# ── Session state init ─────────────────────────────────────────────────────────
-for key in ("internal_data", "external_data", "report_path", "pdf_path"):
+# ── Session state init ────────────────────────────────────────────────────────
+for key in (
+    "internal_data",
+    "external_data",
+    "external_qa",
+    "external_safe_to_proceed",
+    "report_path",
+    "pdf_path",
+    "ai_summaries",
+):
     if key not in st.session_state:
         st.session_state[key] = {} if key not in ("report_path", "pdf_path") else None
 
@@ -602,12 +612,26 @@ with tab1:
 with tab2:
     st.header("Pré-visualização de Dados")
 
+    run_llm_qa = st.checkbox(
+        "Executar QA com LLM",
+        value=False,
+        help="Usa a camada de auditoria adicional além das validações determinísticas.",
+    )
+
     if st.button("🔄 Actualizar Dados Externos (scrape)"):
         with st.spinner("A recolher dados de mercado… (30-60 s)"):
             try:
-                from src.scrapers.market_aggregator import scrape_all_external_data
-                st.session_state.external_data = scrape_all_external_data()
-                st.success("✅ Dados externos carregados!")
+                from src.scrapers.market_aggregator import scrape_all_external_data_with_qa
+
+                payload = scrape_all_external_data_with_qa(run_gemini_qa=run_llm_qa)
+                st.session_state.external_data = payload.get("data", {})
+                st.session_state.external_qa = payload.get("qa", {})
+                st.session_state.external_safe_to_proceed = payload.get("safe_to_proceed", False)
+
+                if st.session_state.external_safe_to_proceed:
+                    st.success("✅ Dados externos carregados e aprovados!")
+                else:
+                    st.warning("⚠️ Dados externos carregados, mas o QA sinalizou atenção.")
             except Exception as e:
                 st.error(f"Erro ao recolher dados: {e}")
                 st.code(traceback.format_exc())
@@ -620,7 +644,8 @@ with tab2:
             ("crypto",      "₿ Criptomoedas"),
             ("luibor",      "🏦 Taxas LUIBOR (BNA)"),
             ("fx_rates",    "💱 Taxas de Câmbio (BNA)"),
-            ("bodiva_stocks", "📊 Acções BODIVA"),
+            ("bna_rates",   "📈 Taxas e Inflação (BNA)"),
+            ("bodiva",      "🏛️ BODIVA"),
         ]
         for key, label in maps:
             item = ed.get(key)
@@ -630,6 +655,25 @@ with tab2:
                     st.dataframe(item, use_container_width=True)
                 else:
                     st.json(item)
+
+    qa = st.session_state.external_qa
+    if qa:
+        st.subheader("🔎 QA do Scrape")
+        st.caption(
+            f"Safe to proceed: {'sim' if st.session_state.external_safe_to_proceed else 'não'}"
+        )
+        qa_rows = []
+        for step, result in qa.items():
+            if hasattr(result, "model_dump"):
+                row = result.model_dump()
+            elif isinstance(result, dict):
+                row = result
+            else:
+                row = {"step": step, "status": str(result)}
+            row["step"] = step
+            qa_rows.append(row)
+        if qa_rows:
+            st.dataframe(pd.DataFrame(qa_rows), use_container_width=True)
 
     id_ = st.session_state.internal_data
     if id_:
@@ -668,16 +712,20 @@ with tab3:
     st.header("Gerar Relatório")
 
     report_date = st.date_input("Data do Relatório", datetime.now())
+    provider_label = get_provider_name().upper()
 
     col_ai, col_hint = st.columns(2)
     with col_ai:
         use_ai = st.checkbox(
-            "Usar Resumos IA (Gemini)",
+            f"Usar Resumos IA ({provider_label})",
             value=False,
-            help="Requer GEMINI_API_KEY no ficheiro .env",
+            help="Requer configuração do provider LLM no ficheiro .env",
         )
     with col_hint:
-        st.info("💡 Para activar a IA: adicione `GEMINI_API_KEY=<chave>` ao ficheiro `.env`.")
+        st.info(
+            "💡 Para activar a IA: configure `LLM_PROVIDER` e a chave do provider "
+            "(`OPENAI_API_KEY` ou `GEMINI_API_KEY`) no ficheiro `.env`."
+        )
 
     if st.button("📊 Gerar Relatório PowerPoint", type="primary"):
         ed  = st.session_state.external_data
@@ -760,31 +808,26 @@ with tab3:
                         return value
 
                     bodiva_stocks: dict = {}
-                    bodiva_df = ed.get("bodiva_stocks") if ed else None
-                    if bodiva_df is not None and not bodiva_df.empty:
-                        for _, r in bodiva_df.iterrows():
-                            code = str(r.get("codigo", "")).strip()
-                            if not code:
-                                continue
+                    bodiva_raw = ed.get("bodiva") if ed else None
+                    if isinstance(bodiva_raw, dict):
+                        for code, info in bodiva_raw.get("stocks", {}).items():
                             bodiva_stocks[code] = {
-                                "volume": _clean_stock_value(r.get("volume")),
-                                "previous": _clean_stock_value(r.get("previous")),
-                                "current": _clean_stock_value(r.get("current")),
-                                "change_pct": _clean_stock_value(r.get("change_pct")),
-                                "cap_bolsista": _clean_stock_value(r.get("cap_bolsista")),
+                                "volume":       _clean_stock_value(info.get("volume")),
+                                "previous":     _clean_stock_value(info.get("previous")),
+                                "current":      _clean_stock_value(info.get("current")),
+                                "change_pct":   _clean_stock_value(info.get("change_pct")),
+                                "cap_bolsista": _clean_stock_value(info.get("cap_bolsista")),
                             }
 
                     # ── Merge everything ──────────────────────────────────────
                     data = {
-                        "report_date":  date_str,
-                        "market_info":  market_info,
-                        "luibor":       luibor,
-                        "luibor_variation": luibor_var,
-                        "bodiva_stocks": bodiva_stocks,
+                        "report_date":       date_str,
+                        "market_info":       market_info,
+                        "luibor":            luibor,
+                        "luibor_variation":  luibor_var,
+                        "bodiva_stocks":     bodiva_stocks,
                         **(id_ or {}),
                     }
-                    if not data.get("bodiva_stocks"):
-                        data["bodiva_stocks"] = bodiva_stocks
 
                     # ── Generate PPTX ─────────────────────────────────────────
                     os.makedirs("output", exist_ok=True)

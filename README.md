@@ -12,7 +12,7 @@ Scrapes external financial data, accepts internal treasury inputs, and generates
 |------|-------------|
 | 1 | Scrape external data — BNA (LUIBOR, FX, inflation), Yahoo Finance (indices, commodities, crypto) |
 | 2 | User enters internal treasury data in the Streamlit UI |
-| 3 | Optional: Gemini AI generates Portuguese commentary for each section |
+| 3 | Optional: AI generates Portuguese commentary for each section |
 | 4 | One click generates a fully branded `.pptx` matching the BDA template |
 | 5 | Download the PPTX directly from the browser |
 
@@ -35,7 +35,7 @@ playwright install chromium        # for BNA scraper
 
 ```bash
 cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY (optional — report works without it)
+# Edit .env and add your provider API key (optional — report works without it)
 ```
 
 ### 3. Run
@@ -70,10 +70,10 @@ teko-bda-daily-report/
 │   │   └── pptx_builder.py     ← 11-slide BDA PPTX builder (BDAReportGenerator)
 │   │
 │   ├── agents/
-│   │   └── ai_agent.py         ← High-level Gemini commentary agent
+│   │   └── ai_agent.py         ← High-level commentary agent
 │   │
 │   ├── llm/
-│   │   └── llm_client.py       ← Thin Gemini wrapper (generate_commentary, run_report_qa)
+│   │   └── llm_client.py       ← Provider-agnostic LLM router
 │   │
 │   └── utils/
 │       ├── logger.py
@@ -87,18 +87,27 @@ teko-bda-daily-report/
 
 ---
 
-## Gemini AI Setup
+## LLM Setup
 
 The AI commentary is **optional** — the report generates fully without it.
 
-1. Get a free key at [https://aistudio.google.com/](https://aistudio.google.com/)
-2. Add to `.env`:
-   ```
-   GEMINI_API_KEY=AIza...
-   ```
-3. Tick **"Usar Resumos IA (Gemini)"** in the Generate tab before clicking Generate.
+Default provider is OpenAI:
 
-Default model: `gemini-2.0-flash` — change via `GEMINI_MODEL` in `.env`.
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Gemini remains supported:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+Switch providers by changing only `LLM_PROVIDER` in `.env`.
 
 ---
 
@@ -115,8 +124,8 @@ Default model: `gemini-2.0-flash` — change via `GEMINI_MODEL` in `.env`.
 | 7 | Mercado Cambial | internal FX + BNA |
 | 8 | Mercado de Capitais – BODIVA | BODIVA scraper |
 | 9 | Mercado de Capitais – Operações BDA | internal portfolio |
-| 10 | Informação de Mercados (1/2) | Yahoo indices + crypto + Gemini |
-| 11 | Informação de Mercados (2/2) | Yahoo commodities + minerals + Gemini |
+| 10 | Informação de Mercados (1/2) | Yahoo indices + crypto + optional AI |
+| 11 | Informação de Mercados (2/2) | Yahoo commodities + minerals + optional AI |
 
 ---
 
@@ -137,7 +146,7 @@ Default model: `gemini-2.0-flash` — change via `GEMINI_MODEL` in `.env`.
 
 ## For Malcolm (and future maintainers)
 
-- All LLM calls go through `src/llm/llm_client.py`. To change model, edit `GEMINI_MODEL` in `src/config.py`.
+- All LLM calls go through `src/llm/llm_client.py`. Provider selection is controlled by `LLM_PROVIDER` in `.env`.
 - To add a new data source: create a new scraper inheriting `BaseScraper`, add it to `market_aggregator.py`, then map its output into the `data` dict in `app.py`.
 - To add a new slide: add a `_slide_xyz()` method to `BDAReportGenerator` and call it in `build()`.
 - The full `data` dict schema is documented in the `BDAReportGenerator` class docstring in `src/report_generator/pptx_builder.py`.
